@@ -184,7 +184,7 @@ typedef struct _kafka_api_info_t {
 #define KAFKA_DELETE_TOPICS      20
 static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_PRODUCE,             "Produce",
-      0, 5 },
+      0, 7 },
     { KAFKA_FETCH,               "Fetch",
       0, 6 },
     { KAFKA_OFFSETS,             "Offsets",
