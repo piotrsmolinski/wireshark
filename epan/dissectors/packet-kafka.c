@@ -146,6 +146,7 @@ static expert_field ei_kafka_unsupported_api_version = EI_INIT;
 static expert_field ei_kafka_message_decompress = EI_INIT;
 static expert_field ei_kafka_bad_string_length = EI_INIT;
 static expert_field ei_kafka_bad_bytes_length = EI_INIT;
+static expert_field ei_kafka_unknown_message_magic = EI_INIT;
 
 typedef gint16 kafka_api_key_t;
 typedef gint16 kafka_api_version_t;
@@ -696,12 +697,26 @@ dissect_kafka_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int s
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_message, &message_ti, "Message");
 
-    /* CRC */
-    proto_tree_add_item(subtree, hf_kafka_message_crc, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
+    // Magic is actually format version
+    // The meaning of the 4 octets preceeding magic is depending on the magic version
+    // In the pre-0.11 Kafka it was CRC, but then the CRC is saved just after magic
+    // and the field is reused by partition leader epoch
+    magic_byte = tvb_get_guint8(tvb, offset+4);
+    
+    if (magic_byte < 2) {
+        proto_tree_add_item(subtree, hf_kafka_message_crc, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+//    } else if (magic_byte == 2) {
+//        proto_tree_add_item(subtree, hf_kafka_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+//        offset += 4;
+    } else { // but what otherwise?
+        proto_item_append_text(subtree, "[Unknown message magic]");
+        expert_add_info_format(pinfo, message_ti, &ei_kafka_unknown_message_magic,
+                               "message magic: %d", magic_byte);
 
-    /* Magic */
-    magic_byte = tvb_get_guint8(tvb, offset);
+        return offset;
+    }
+
     proto_tree_add_item(subtree, hf_kafka_message_magic, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
@@ -4192,6 +4207,8 @@ proto_register_kafka(void)
           { "kafka.bad_string_length", PI_MALFORMED, PI_WARN, "Invalid string length field", EXPFILL }},
         { &ei_kafka_bad_bytes_length,
           { "kafka.bad_bytes_length", PI_MALFORMED, PI_WARN, "Invalid byte length field", EXPFILL }},
+        { &ei_kafka_unknown_message_magic,
+          { "kafka.unknown_message_magic", PI_MALFORMED, PI_WARN, "Invalid message magic field", EXPFILL }},
     };
 
     module_t *kafka_module;
