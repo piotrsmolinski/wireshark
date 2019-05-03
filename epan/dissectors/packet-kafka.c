@@ -112,6 +112,10 @@ static int hf_kafka_config_key = -1;
 static int hf_kafka_config_value = -1;
 static int hf_kafka_commit_timestamp = -1;
 static int hf_kafka_retention_time = -1;
+static int hf_kafka_forgotten_topic_name = -1;
+static int hf_kafka_forgotten_topic_partition = -1;
+static int hf_kafka_fetch_session_id = -1;
+static int hf_kafka_fetch_session_epoch = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_message = -1;
@@ -139,6 +143,7 @@ static int ett_kafka_sasl_enabled_mechanisms = -1;
 static int ett_kafka_replica_assignment = -1;
 static int ett_kafka_configs = -1;
 static int ett_kafka_config = -1;
+static int ett_kafka_request_forgotten_topic = -1;
 
 static expert_field ei_kafka_request_missing = EI_INIT;
 static expert_field ei_kafka_unknown_api_key = EI_INIT;
@@ -187,7 +192,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_PRODUCE,             "Produce",
       0, 7 },
     { KAFKA_FETCH,               "Fetch",
-      0, 6 },
+      0, 10 },
     { KAFKA_OFFSETS,             "Offsets",
       0, 1 },
     { KAFKA_METADATA,            "Metadata",
@@ -1655,6 +1660,11 @@ dissect_kafka_fetch_request_partition(tvbuff_t *tvb, packet_info *pinfo, proto_t
     subtree = proto_tree_add_subtree(tree, tvb, offset, 16, ett_kafka_request_partition, &ti, "Fetch Request Partition");
 
     offset = dissect_kafka_partition_id_get_value(tvb, pinfo, subtree, offset, &packet_values);
+    
+    if (api_version >= 9) {
+        proto_tree_add_item(subtree, hf_kafka_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
 
     offset = dissect_kafka_offset_get_value(tvb, pinfo, subtree, offset, &packet_values);
 
@@ -1696,6 +1706,38 @@ dissect_kafka_fetch_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 }
 
 static int
+dissect_kafka_fetch_request_forgottent_topic_partition(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset,
+                                                  kafka_api_version_t api_version _U_)
+{
+    proto_tree_add_item(tree, hf_kafka_forgotten_topic_partition, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+    return offset;
+}
+
+static int
+dissect_kafka_fetch_request_forgotten_topics_data(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int start_offset,
+                                  kafka_api_version_t api_version)
+{
+    proto_item *ti;
+    proto_tree *subtree;
+    int         offset = start_offset;
+    guint32     count;
+    int         name_start, name_length;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_forgotten_topic, &ti, "Fetch Request Forgotten Topic Data");
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_forgotten_topic_name, tvb, pinfo, offset, &name_start, &name_length);
+    count = tvb_get_ntohl(tvb, offset);
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_fetch_request_forgottent_topic_partition);
+    
+    proto_item_set_len(ti, offset - start_offset);
+    proto_item_append_text(ti, " (%u partitions)", count);
+    
+    return offset;
+}
+
+static int
 dissect_kafka_fetch_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                             kafka_api_version_t api_version)
 {
@@ -1718,7 +1760,21 @@ dissect_kafka_fetch_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         offset += 1;
     }
 
+    if (api_version >= 7) {
+        proto_tree_add_item(tree, hf_kafka_fetch_session_id, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+
+    if (api_version >= 7) {
+        proto_tree_add_item(tree, hf_kafka_fetch_session_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+
     offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version, &dissect_kafka_fetch_request_topic);
+    
+    if (api_version >= 7) {
+        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version, &dissect_kafka_fetch_request_forgotten_topics_data);
+    }
 
     return offset;
 }
@@ -1812,6 +1868,16 @@ dissect_kafka_fetch_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     if (api_version >= 1) {
         /* Throttle time */
         proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+
+    if (api_version >= 7) {
+        proto_tree_add_item(tree, hf_kafka_error, tvb, offset, 2, ENC_BIG_ENDIAN);
+        offset += 2;
+    }
+
+    if (api_version >= 7) {
+        proto_tree_add_item(tree, hf_kafka_fetch_session_id, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
     }
 
@@ -4163,6 +4229,26 @@ proto_register_kafka(void)
                FT_INT64, BASE_DEC, 0, 0,
                NULL, HFILL }
         },
+        { &hf_kafka_forgotten_topic_name,
+            { "Forgotten Topic Name", "kafka.forgotten_topic_name",
+                FT_STRING, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_forgotten_topic_partition,
+            { "Forgotten Topic Partition", "kafka.forgotten_topic_partition",
+                FT_INT64, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_fetch_session_id,
+            { "Fetch Session ID", "kafka.fetch_session_id",
+                FT_INT64, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_fetch_session_epoch,
+            { "Fetch Session Epoch", "kafka.fetch_session_epoch",
+                FT_INT64, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
     };
 
     static int *ett[] = {
@@ -4192,6 +4278,7 @@ proto_register_kafka(void)
         &ett_kafka_replica_assignment,
         &ett_kafka_configs,
         &ett_kafka_config,
+        &ett_kafka_request_forgotten_topic,
     };
 
     static ei_register_info ei[] = {
