@@ -243,7 +243,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_FETCH,                     "Fetch",
       0, 10 },
     { KAFKA_OFFSETS,                   "Offsets",
-      0, 1 },
+      0, 4 },
     { KAFKA_METADATA,                  "Metadata",
       0, 7 },
     { KAFKA_LEADER_AND_ISR,            "LeaderAndIsr",
@@ -2442,6 +2442,11 @@ dissect_kafka_offsets_request_partition(tvbuff_t *tvb, packet_info *pinfo, proto
 
     offset = dissect_kafka_partition_id(tvb, pinfo, subtree, offset, api_version);
 
+    if (api_version >= 4 ) {
+        proto_tree_add_item(subtree, hf_kafka_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+
     offset = dissect_kafka_offset_time(tvb, pinfo, subtree, offset, api_version);
 
     if (api_version == 0) {
@@ -2480,6 +2485,11 @@ dissect_kafka_offsets_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
     proto_tree_add_item(tree, hf_kafka_replica, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
+    if (api_version >= 2 ) {
+        proto_tree_add_item(tree, hf_kafka_isolation_level, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+    }
+
     offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version, &dissect_kafka_offsets_request_topic);
 
     return offset;
@@ -2507,6 +2517,11 @@ dissect_kafka_offsets_response_partition(tvbuff_t *tvb, packet_info *pinfo, prot
 
         offset = dissect_kafka_offset(tvb, pinfo, subtree, offset, api_version);
     }
+    
+    if (api_version >= 4) {
+        proto_tree_add_item(subtree, hf_kafka_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
 
     proto_item_set_len(ti, offset - start_offset);
 
@@ -2533,9 +2548,16 @@ dissect_kafka_offsets_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 }
 
 static int
-dissect_kafka_offsets_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+dissect_kafka_offsets_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int start_offset,
                                kafka_api_version_t api_version)
 {
+    int offset = start_offset;
+
+    if (api_version >= 2) {
+        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+    
     return dissect_kafka_array(tree, tvb, pinfo, offset, api_version, &dissect_kafka_offsets_response_topic);
 }
 
