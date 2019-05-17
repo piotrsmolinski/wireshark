@@ -64,6 +64,19 @@ static int hf_kafka_message_magic = -1;
 static int hf_kafka_message_codec = -1;
 static int hf_kafka_message_timestamp_type = -1;
 static int hf_kafka_message_timestamp = -1;
+static int hf_kafka_batch_crc = -1;
+static int hf_kafka_batch_magic = -1;
+static int hf_kafka_batch_codec = -1;
+static int hf_kafka_batch_timestamp_type = -1;
+static int hf_kafka_batch_transactional = -1;
+static int hf_kafka_batch_control_batch = -1;
+static int hf_kafka_batch_last_offset_delta = -1;
+static int hf_kafka_batch_first_timestamp = -1;
+static int hf_kafka_batch_last_timestamp = -1;
+static int hf_kafka_batch_producer_id = -1;
+static int hf_kafka_batch_producer_epoch = -1;
+static int hf_kafka_batch_base_sequence = -1;
+static int hf_kafka_batch_size = -1;
 static int hf_kafka_message_key = -1;
 static int hf_kafka_message_value = -1;
 static int hf_kafka_message_value_compressed = -1;
@@ -118,9 +131,15 @@ static int hf_kafka_forgotten_topic_name = -1;
 static int hf_kafka_forgotten_topic_partition = -1;
 static int hf_kafka_fetch_session_id = -1;
 static int hf_kafka_fetch_session_epoch = -1;
+static int hf_kafka_record_header_key = -1;
+static int hf_kafka_record_header_value = -1;
+static int hf_kafka_record_headers_count = -1;
+static int hf_kafka_record_length = -1;
+static int hf_kafka_record_attributes = -1;
 static int hf_kafka_allow_auto_topic_creation = -1;
 
 static int ett_kafka = -1;
+static int ett_kafka_batch = -1;
 static int ett_kafka_message = -1;
 static int ett_kafka_message_set = -1;
 static int ett_kafka_replicas = -1;
@@ -148,6 +167,9 @@ static int ett_kafka_replica_assignment = -1;
 static int ett_kafka_configs = -1;
 static int ett_kafka_config = -1;
 static int ett_kafka_request_forgotten_topic = -1;
+static int ett_kafka_record = -1;
+static int ett_kafka_record_headers = -1;
+static int ett_kafka_record_headers_header = -1;
 
 static expert_field ei_kafka_request_missing = EI_INIT;
 static expert_field ei_kafka_unknown_api_key = EI_INIT;
@@ -318,6 +340,20 @@ static const guint8 kafka_xerial_header[8] = {0x82, 0x53, 0x4e, 0x41, 0x50, 0x50
 static const value_string kafka_message_timestamp_types[] = {
     { 0, "CreateTime" },
     { 1, "LogAppendTime" },
+    { 0, NULL }
+};
+
+#define KAFKA_BATCH_TRANSACTIONAL_MASK 0x10
+static const value_string kafka_batch_transactional_values[] = {
+    { 0, "Non-transactional" },
+    { 1, "Transactional" },
+    { 0, NULL }
+};
+
+#define KAFKA_BATCH_CONTROL_BATCH_MASK 0x20
+static const value_string kafka_batch_control_batch_values[] = {
+    { 0, "Data batch" },
+    { 1, "Control batch" },
     { 0, NULL }
 };
 
@@ -680,8 +716,129 @@ dissect_kafka_timestamp(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     return offset;
 }
 
+static long
+tvb_get_kafka_varint(tvbuff_t *tvb, int offset)
+{
+
+    long value = 0;
+    guint8 part;
+    int i = 0;
+
+    do {
+        part = tvb_get_guint8(tvb, offset);
+        value += (part & 0x7f) << (i*7);
+        offset += 1;
+        i += 1;
+    } while ((part&0x80)!=0);
+
+    return (value>>1) ^ ((value & 1) ? -1 : 0);
+
+}
+
+static int
+tvb_get_kafka_varint_len(tvbuff_t *tvb, int offset)
+{
+    
+    int value = 0;
+    guint8 part;
+    int i = 0;
+    
+    do {
+        part = tvb_get_guint8(tvb, offset);
+        value += (part & 0x7f) << (i*7);
+        offset += 1;
+        i += 1;
+    } while ((part&0x80)!=0);
+    
+    return i;
+    
+}
+
+static int
+dissect_kafka_varint(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int hf_item, int offset)
+{
+    long val;
+    int  len;
+    val = tvb_get_kafka_varint(tvb, offset);
+    len = tvb_get_kafka_varint_len(tvb, offset);
+    proto_tree_add_uint64(tree, hf_item, tvb, offset, len, val);
+    return offset+len;
+
+}
+
+static int
+dissect_kafka_timestamp_delta(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int hf_item, int offset, guint64 first_timestamp)
+{
+    nstime_t nstime;
+    guint64  milliseconds;
+    long val;
+    int  len;
+
+    val = tvb_get_kafka_varint(tvb, offset);
+    len = tvb_get_kafka_varint_len(tvb, offset);
+
+    milliseconds = first_timestamp + val;
+    nstime.secs  = (time_t) (milliseconds / 1000);
+    nstime.nsecs = ((int)milliseconds % 1000) * 1000000;
+    
+    proto_tree_add_time(tree, hf_item, tvb, offset, len, &nstime);
+    offset += len;
+    
+    return offset;
+}
+
+static int
+dissect_kafka_offset_delta(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int hf_item, int offset, guint64 base_offset)
+{
+    long val;
+    int  len;
+    
+    val = tvb_get_kafka_varint(tvb, offset);
+    len = tvb_get_kafka_varint_len(tvb, offset);
+
+    proto_tree_add_int64(tree, hf_item, tvb, offset, len, base_offset+val);
+    offset += len;
+    
+    return offset;
+}
+
+
+static int
+dissect_kafka_bytes_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int hf_item, int start_offset)
+{
+    
+    int value = 0;
+    guint8 part;
+    int i = 0;
+    int length, offset;
+    guint8* buffer;
+    
+    offset = start_offset;
+    
+    // theoretically it is possible to use tvb_get_kafka_varint, but
+    // there could be more octets with just most significant bit set
+    do {
+        part = tvb_get_guint8(tvb, offset);
+        value += (part & 0x7f) << (i*7);
+        offset += 1;
+        i += 1;
+    } while ((part&0x80)!=0);
+
+    length = (value>>1) ^ ((value & 1) ? -1 : 0);
+    
+    buffer = tvb_memdup(wmem_packet_scope(), tvb, offset, length);
+
+    proto_tree_add_bytes_with_length(tree, hf_item, tvb, start_offset, i+length, buffer, length);
+    
+    offset += length;
+
+    return offset;
+    
+}
+
 /* Calculate and show the reduction in transmitted size due to compression */
-static void show_compression_reduction(tvbuff_t *tvb, proto_tree *tree, guint compressed_size, guint uncompressed_size)
+static void
+show_compression_reduction(tvbuff_t *tvb, proto_tree *tree, guint compressed_size, guint uncompressed_size)
 {
     proto_item *ti;
     /* Not really expecting a message to compress down to nothing, but defend against dividing by 0 anyway */
@@ -693,7 +850,7 @@ static void show_compression_reduction(tvbuff_t *tvb, proto_tree *tree, guint co
 }
 
 static int
-dissect_kafka_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int start_offset)
+dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int start_offset)
 {
     proto_item *message_ti, *decrypt_item;
     proto_tree *subtree;
@@ -702,46 +859,35 @@ dissect_kafka_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int s
     gint8       magic_byte;
     guint8      codec;
     guint       bytes_length = 0;
-
-
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_message, &message_ti, "Message");
-
-    // Magic is actually format version
-    // The meaning of the 4 octets preceeding magic is depending on the magic version
-    // In the pre-0.11 Kafka it was CRC, but then the CRC is saved just after magic
-    // and the field is reused by partition leader epoch
-    magic_byte = tvb_get_guint8(tvb, offset+4);
+    guint32     message_size;
     
-    if (magic_byte < 2) {
-        proto_tree_add_item(subtree, hf_kafka_message_crc, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
-//    } else if (magic_byte == 2) {
-//        proto_tree_add_item(subtree, hf_kafka_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
-//        offset += 4;
-    } else { // but what otherwise?
-        proto_item_append_text(subtree, "[Unknown message magic]");
-        expert_add_info_format(pinfo, message_ti, &ei_kafka_unknown_message_magic,
-                               "message magic: %d", magic_byte);
+    message_size = tvb_get_guint32(tvb, start_offset + 8, ENC_BIG_ENDIAN);
+    
+    subtree = proto_tree_add_subtree(tree, tvb, start_offset, message_size + 12, ett_kafka_message, &message_ti, "Message");
 
-        return offset;
-    }
+    proto_tree_add_item(subtree, hf_kafka_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
+    offset += 8;
+    
+    proto_tree_add_item(subtree, hf_kafka_message_size, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    proto_tree_add_item(subtree, hf_kafka_message_crc, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    magic_byte = tvb_get_guint8(tvb, offset);
 
     proto_tree_add_item(subtree, hf_kafka_message_magic, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    /* Codec */
     proto_tree_add_item(subtree, hf_kafka_message_codec, tvb, offset, 1, ENC_BIG_ENDIAN);
     codec = tvb_get_guint8(tvb, offset) & KAFKA_MESSAGE_CODEC_MASK;
-
-    /* Timestamp Type */
     proto_tree_add_item(subtree, hf_kafka_message_timestamp_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
-
-    if (magic_byte >= 1) {
-        /* Timestamp */
+    
+    if (magic_byte == 1) {
         offset = dissect_kafka_timestamp(tvb, pinfo, subtree, hf_kafka_message_timestamp, offset);
     }
-
+    
     offset = dissect_kafka_bytes(subtree, hf_kafka_message_key, tvb, pinfo, offset, NULL, &bytes_length);
 
     switch (codec) {
@@ -954,9 +1100,177 @@ dissect_kafka_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int s
             proto_item_append_text(message_ti, " (%u bytes)", bytes_length);
     }
 
-    proto_item_set_len(message_ti, offset - start_offset);
+    // proto_item_set_len(message_ti, offset - start_offset);
 
     return offset;
+}
+
+static int
+dissect_kafka_record_headers_header(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int start_offset)
+{
+    
+    proto_item *header_ti;
+    proto_tree *subtree;
+    int offset;
+    
+    offset = start_offset;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_record_headers_header, &header_ti, "Header");
+    
+    offset = dissect_kafka_bytes_new(tvb, pinfo, subtree, hf_kafka_record_header_key, offset);
+    offset = dissect_kafka_bytes_new(tvb, pinfo, subtree, hf_kafka_record_header_value, offset);
+
+    proto_item_set_len(header_ti, offset-start_offset);
+    
+    return offset;
+    
+}
+static int
+dissect_kafka_record_headers(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int start_offset)
+{
+    
+    proto_item *record_headers_ti;
+    proto_tree *subtree;
+    int offset, count, i;
+    
+    offset = start_offset;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_record_headers, &record_headers_ti, "Headers");
+    
+    // TODO: check for count >=0
+    count = (int)tvb_get_kafka_varint(tvb, offset);
+    offset = dissect_kafka_varint(tvb, pinfo, subtree, hf_kafka_record_headers_count, offset);
+
+    for (i=0;i<count;i++) {
+        offset = dissect_kafka_record_headers_header(tvb, pinfo, subtree, offset);
+    }
+    
+    proto_item_set_len(record_headers_ti, offset-start_offset);
+    
+    return offset;
+    
+}
+
+static int
+dissect_kafka_record(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int start_offset, long base_offset, long first_timestamp)
+{
+    proto_item *record_ti;
+    proto_tree *subtree;
+    int offset, length, end_offset;
+    
+    offset = start_offset;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_record, &record_ti, "Record");
+    
+    // TODO: check for length >=0
+    length = (int)tvb_get_kafka_varint(tvb, offset);
+
+    offset = dissect_kafka_varint(tvb, pinfo, subtree, hf_kafka_record_length, offset);
+    
+    end_offset = offset + length;
+    proto_item_set_len(record_ti, offset-start_offset+length);
+
+    proto_tree_add_item(subtree, hf_kafka_record_attributes, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
+
+    offset = dissect_kafka_timestamp_delta(tvb, pinfo, subtree, hf_kafka_message_timestamp, offset, first_timestamp);
+    offset = dissect_kafka_offset_delta(tvb, pinfo, subtree, hf_kafka_offset, offset, base_offset);
+
+    offset = dissect_kafka_bytes_new(tvb, pinfo, subtree, hf_kafka_message_key, offset);
+    offset = dissect_kafka_bytes_new(tvb, pinfo, subtree, hf_kafka_message_value, offset);
+
+    offset = dissect_kafka_record_headers(tvb, pinfo, subtree, offset);
+    
+    return end_offset;
+    
+}
+
+static int
+dissect_kafka_message_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int start_offset)
+{
+    proto_item *batch_ti;
+    proto_tree *subtree;
+    int         offset = start_offset;
+    gint8       magic_byte;
+    guint8      codec;
+    guint32     message_size;
+    guint32     count, i;
+    guint64     base_offset, first_timestamp;
+    
+    message_size = tvb_get_guint32(tvb, start_offset + 8, ENC_BIG_ENDIAN);
+
+    subtree = proto_tree_add_subtree(tree, tvb, start_offset, message_size + 12, ett_kafka_batch, &batch_ti, "Record Batch");
+
+    base_offset = tvb_get_ntoh64(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
+    offset += 8;
+    
+    proto_tree_add_item(subtree, hf_kafka_message_size, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    proto_tree_add_item(subtree, hf_kafka_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    magic_byte = tvb_get_guint8(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_message_magic, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
+
+    if (magic_byte > 2) {
+        proto_item_append_text(subtree, "[Unknown message magic]");
+        expert_add_info_format(pinfo, batch_ti, &ei_kafka_unknown_message_magic,
+                               "message magic: %d", magic_byte);
+        return offset;
+    }
+    
+    proto_tree_add_item(subtree, hf_kafka_batch_crc, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    proto_tree_add_item(subtree, hf_kafka_batch_codec, tvb, offset, 2, ENC_BIG_ENDIAN);
+    codec = tvb_get_guint8(tvb, offset) & KAFKA_MESSAGE_CODEC_MASK;
+    proto_tree_add_item(subtree, hf_kafka_batch_timestamp_type, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(subtree, hf_kafka_batch_transactional, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(subtree, hf_kafka_batch_control_batch, tvb, offset, 2, ENC_BIG_ENDIAN);
+    // next octet is reserved
+    offset += 2;
+
+    proto_tree_add_item(subtree, hf_kafka_batch_last_offset_delta, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    first_timestamp = tvb_get_ntoh64(tvb, offset);
+    offset = dissect_kafka_timestamp(tvb, pinfo, subtree, hf_kafka_batch_first_timestamp, offset);
+    offset = dissect_kafka_timestamp(tvb, pinfo, subtree, hf_kafka_batch_last_timestamp, offset);
+
+    proto_tree_add_item(subtree, hf_kafka_batch_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
+    offset += 8;
+    proto_tree_add_item(subtree, hf_kafka_batch_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
+    proto_tree_add_item(subtree, hf_kafka_batch_base_sequence, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    // TODO: fill the remaining stuff
+    proto_tree_add_item(subtree, hf_kafka_batch_size, tvb, offset, 4, ENC_BIG_ENDIAN);
+    count = tvb_get_ntohl(tvb, offset);
+    offset += 4;
+
+    for (i=0;i<count;i++) {
+        offset = dissect_kafka_record(tvb, pinfo, subtree, offset, base_offset, first_timestamp);
+    }
+    
+    return start_offset + 8 /*base offset*/ + 4 /*message size*/ + message_size;
+}
+
+static int
+dissect_kafka_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int start_offset)
+{
+    gint8       magic_byte;
+
+    magic_byte = tvb_get_guint8(tvb, start_offset+16);
+    if (magic_byte < 2) {
+        return dissect_kafka_message_old(tvb, pinfo, tree, start_offset);
+    } else {
+        return dissect_kafka_message_new(tvb, pinfo, tree, start_offset);
+    }
+    
 }
 
 static int
@@ -964,7 +1278,7 @@ dissect_kafka_message_set(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
 {
     proto_item *ti;
     proto_tree *subtree;
-    gint        len;
+    gint        len, message_size;
     int         offset = start_offset;
     int         messages = 0;
 
@@ -989,14 +1303,14 @@ dissect_kafka_message_set(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
     }
 
     while (offset - start_offset < len) {
-        proto_tree_add_item(subtree, hf_kafka_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
-        offset += 8;
+        
+        message_size = tvb_get_guint32(tvb, offset+8, ENC_BIG_ENDIAN);
 
-        proto_tree_add_item(subtree, hf_kafka_message_size, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
-
-        offset = dissect_kafka_message(tvb, pinfo, subtree, offset);
+        dissect_kafka_message(tvb, pinfo, subtree, offset);
+        offset += 12 + message_size;
+        
         messages += 1;
+
     }
 
     proto_item_append_text(ti, " (%d Messages)", messages);
@@ -3999,7 +4313,7 @@ proto_register_kafka(void)
                NULL, HFILL }
         },
         { &hf_kafka_partition_leader_epoch,
-            { "Leader Epoch", "kafka.leader_epoch",
+            { "Leader", "kafka.leader_epoch",
                 FT_INT32, BASE_DEC, 0, 0,
                 NULL, HFILL }
         },
@@ -4032,6 +4346,71 @@ proto_register_kafka(void)
             { "Timestamp Type", "kafka.message_timestamp_type",
                FT_UINT8, BASE_DEC, VALS(kafka_message_timestamp_types), KAFKA_MESSAGE_TIMESTAMP_MASK,
                NULL, HFILL }
+        },
+        { &hf_kafka_batch_crc,
+            { "CRC32", "kafka.batch_crc",
+                FT_UINT32, BASE_HEX, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_batch_magic,
+            { "Magic Byte", "kafka.batch_magic",
+                FT_INT8, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_batch_codec,
+            { "Compression Codec", "kafka.batch_codec",
+                FT_UINT16, BASE_DEC, VALS(kafka_message_codecs), KAFKA_MESSAGE_CODEC_MASK,
+                NULL, HFILL }
+        },
+        { &hf_kafka_batch_timestamp_type,
+            { "Timestamp Type", "kafka.batch_timestamp_type",
+                FT_UINT16, BASE_DEC, VALS(kafka_message_timestamp_types), KAFKA_MESSAGE_TIMESTAMP_MASK,
+                NULL, HFILL }
+        },
+        { &hf_kafka_batch_transactional,
+            { "Transactional", "kafka.batch_transactional",
+                FT_UINT16, BASE_DEC, VALS(kafka_batch_transactional_values), KAFKA_BATCH_TRANSACTIONAL_MASK,
+                NULL, HFILL }
+        },
+        { &hf_kafka_batch_control_batch,
+            { "Control Batch", "kafka.batch_control_batch",
+                FT_UINT16, BASE_DEC, VALS(kafka_batch_control_batch_values), KAFKA_BATCH_CONTROL_BATCH_MASK,
+                NULL, HFILL }
+        },
+        { &hf_kafka_batch_last_offset_delta,
+            { "Last Offset Delta", "kafka.batch_last_offset_delta",
+               FT_UINT32, BASE_DEC, 0, 0,
+               NULL, HFILL }
+        },
+        { &hf_kafka_batch_first_timestamp,
+            { "First Timestamp", "kafka.batch_first_timestamp",
+                FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_batch_last_timestamp,
+            { "Last Timestamp", "kafka.batch_last_timestamp",
+                FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_batch_producer_id,
+            { "Producer ID", "kafka.batch_producer_id",
+                FT_UINT64, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_batch_producer_epoch,
+            { "Producer Epoch", "kafka.batch_producer_epoch",
+                FT_UINT16, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_batch_base_sequence,
+            { "Base Sequence", "kafka.batch_base_sequence",
+                FT_UINT32, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_batch_size,
+            { "Size", "kafka.batch_size",
+                FT_UINT32, BASE_DEC, 0, 0,
+                NULL, HFILL }
         },
         { &hf_kafka_message_timestamp,
             { "Timestamp", "kafka.message_timestamp",
@@ -4293,6 +4672,31 @@ proto_register_kafka(void)
                 FT_INT64, BASE_DEC, 0, 0,
                 NULL, HFILL }
         },
+        { &hf_kafka_record_header_key,
+            { "Header Key", "kafka.header_key",
+                FT_BYTES, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_record_header_value,
+            { "Header Value", "kafka.header_value",
+                FT_BYTES, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_record_headers_count,
+            { "Headers Count", "kafka.headers_count",
+                FT_UINT64, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_record_length,
+            { "Record Length", "kafka.record_length",
+                FT_UINT64, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_record_attributes,
+            { "Record Attributes (reserved)", "kafka.record_attributes",
+                FT_INT8, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
         { &hf_kafka_allow_auto_topic_creation,
             { "Allow Auto Topic Creation", "kafka.allow_auto_topic_creation",
                 FT_BOOLEAN, BASE_NONE, 0, 0,
@@ -4302,6 +4706,7 @@ proto_register_kafka(void)
 
     static int *ett[] = {
         &ett_kafka,
+        &ett_kafka_batch,
         &ett_kafka_message,
         &ett_kafka_message_set,
         &ett_kafka_offline,
@@ -4329,6 +4734,9 @@ proto_register_kafka(void)
         &ett_kafka_configs,
         &ett_kafka_config,
         &ett_kafka_request_forgotten_topic,
+        &ett_kafka_record,
+        &ett_kafka_record_headers,
+        &ett_kafka_record_headers_header,
     };
 
     static ei_register_info ei[] = {
