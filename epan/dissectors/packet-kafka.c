@@ -50,7 +50,9 @@ static int hf_kafka_partition_id = -1;
 static int hf_kafka_replica = -1;
 static int hf_kafka_replication_factor = -1;
 static int hf_kafka_isr = -1;
+static int hf_kafka_offline = -1;
 static int hf_kafka_partition_leader = -1;
+static int hf_kafka_partition_leader_epoch = -1;
 static int hf_kafka_last_stable_offset = -1;
 static int hf_kafka_log_start_offset = -1;
 static int hf_kafka_first_offset = -1;
@@ -116,12 +118,14 @@ static int hf_kafka_forgotten_topic_name = -1;
 static int hf_kafka_forgotten_topic_partition = -1;
 static int hf_kafka_fetch_session_id = -1;
 static int hf_kafka_fetch_session_epoch = -1;
+static int hf_kafka_allow_auto_topic_creation = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_message = -1;
 static int ett_kafka_message_set = -1;
 static int ett_kafka_replicas = -1;
 static int ett_kafka_isrs = -1;
+static int ett_kafka_offline = -1;
 static int ett_kafka_broker = -1;
 static int ett_kafka_brokers = -1;
 static int ett_kafka_broker_end_point = -1;
@@ -196,7 +200,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_OFFSETS,             "Offsets",
       0, 1 },
     { KAFKA_METADATA,            "Metadata",
-      0, 2 },
+      0, 7 },
     { KAFKA_LEADER_AND_ISR,      "LeaderAndIsr",
       0, 0 },
     { KAFKA_STOP_REPLICA,        "StopReplica",
@@ -1188,8 +1192,12 @@ static int
 dissect_kafka_metadata_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                kafka_api_version_t api_version)
 {
-    return dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
                                &dissect_kafka_metadata_request_topic);
+    proto_tree_add_item(tree, hf_kafka_allow_auto_topic_creation, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
+    
+    return offset;
 }
 
 static int
@@ -1247,6 +1255,14 @@ dissect_kafka_metadata_isr(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tr
 }
 
 static int
+dissect_kafka_metadata_offline(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset,
+                           kafka_api_version_t api_version _U_)
+{
+    proto_tree_add_item(tree, hf_kafka_offline, tvb, offset, 4, ENC_BIG_ENDIAN);
+    return offset + 4;
+}
+
+static int
 dissect_kafka_metadata_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int start_offset,
                                  kafka_api_version_t api_version)
 {
@@ -1263,6 +1279,11 @@ dissect_kafka_metadata_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
 
     proto_tree_add_item(subtree, hf_kafka_partition_leader, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
+    
+    if (api_version>=7) {
+        proto_tree_add_item(subtree, hf_kafka_partition_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
 
     sub_start_offset = offset;
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_replicas, &subti, "Replicas");
@@ -1273,6 +1294,13 @@ dissect_kafka_metadata_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_isrs, &subti, "Caught-Up Replicas");
     offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_isr);
     proto_item_set_len(subti, offset - sub_start_offset);
+
+    if (api_version>=5) {
+        sub_start_offset = offset;
+        subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_offline, &subti, "Offline Replicas");
+        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_offline);
+        proto_item_set_len(subti, offset - sub_start_offset);
+    }
 
     proto_item_set_len(ti, offset - start_offset);
 
@@ -1318,6 +1346,12 @@ dissect_kafka_metadata_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
     int         offset = start_offset;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_brokers, &ti, "Broker Metadata");
+    
+    if (api_version >= 3) {
+        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_broker);
     proto_item_set_len(ti, offset - start_offset);
 
@@ -3954,10 +3988,20 @@ proto_register_kafka(void)
                FT_INT32, BASE_DEC, 0, 0,
                NULL, HFILL }
         },
+        { &hf_kafka_offline,
+            { "Offline Replica ID", "kafka.offline_id",
+                FT_INT32, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
         { &hf_kafka_partition_leader,
             { "Leader", "kafka.leader",
                FT_INT32, BASE_DEC, 0, 0,
                NULL, HFILL }
+        },
+        { &hf_kafka_partition_leader_epoch,
+            { "Leader Epoch", "kafka.leader_epoch",
+                FT_INT32, BASE_DEC, 0, 0,
+                NULL, HFILL }
         },
         { &hf_kafka_message_set_size,
             { "Message Set Size", "kafka.message_set_size",
@@ -4249,12 +4293,18 @@ proto_register_kafka(void)
                 FT_INT64, BASE_DEC, 0, 0,
                 NULL, HFILL }
         },
+        { &hf_kafka_allow_auto_topic_creation,
+            { "Allow Auto Topic Creation", "kafka.allow_auto_topic_creation",
+                FT_BOOLEAN, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
     };
 
     static int *ett[] = {
         &ett_kafka,
         &ett_kafka_message,
         &ett_kafka_message_set,
+        &ett_kafka_offline,
         &ett_kafka_isrs,
         &ett_kafka_replicas,
         &ett_kafka_broker,
