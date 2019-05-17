@@ -193,69 +193,138 @@ typedef struct _kafka_api_info_t {
     kafka_api_version_t max_version;
 } kafka_api_info_t;
 
-#define KAFKA_PRODUCE             0
-#define KAFKA_FETCH               1
-#define KAFKA_OFFSETS             2
-#define KAFKA_METADATA            3
-#define KAFKA_LEADER_AND_ISR      4
-#define KAFKA_STOP_REPLICA        5
-#define KAFKA_UPDATE_METADATA     6
-#define KAFKA_CONTROLLED_SHUTDOWN 7
-#define KAFKA_OFFSET_COMMIT       8
-#define KAFKA_OFFSET_FETCH        9
-#define KAFKA_GROUP_COORDINATOR  10
-#define KAFKA_JOIN_GROUP         11
-#define KAFKA_HEARTBEAT          12
-#define KAFKA_LEAVE_GROUP        13
-#define KAFKA_SYNC_GROUP         14
-#define KAFKA_DESCRIBE_GROUPS    15
-#define KAFKA_LIST_GROUPS        16
-#define KAFKA_SASL_HANDSHAKE     17
-#define KAFKA_API_VERSIONS       18
-#define KAFKA_CREATE_TOPICS      19
-#define KAFKA_DELETE_TOPICS      20
+#define KAFKA_PRODUCE                    0
+#define KAFKA_FETCH                      1
+#define KAFKA_OFFSETS                    2
+#define KAFKA_METADATA                   3
+#define KAFKA_LEADER_AND_ISR             4
+#define KAFKA_STOP_REPLICA               5
+#define KAFKA_UPDATE_METADATA            6
+#define KAFKA_CONTROLLED_SHUTDOWN        7
+#define KAFKA_OFFSET_COMMIT              8
+#define KAFKA_OFFSET_FETCH               9
+#define KAFKA_GROUP_COORDINATOR         10
+#define KAFKA_JOIN_GROUP                11
+#define KAFKA_HEARTBEAT                 12
+#define KAFKA_LEAVE_GROUP               13
+#define KAFKA_SYNC_GROUP                14
+#define KAFKA_DESCRIBE_GROUPS           15
+#define KAFKA_LIST_GROUPS               16
+#define KAFKA_SASL_HANDSHAKE            17
+#define KAFKA_API_VERSIONS              18
+#define KAFKA_CREATE_TOPICS             19
+#define KAFKA_DELETE_TOPICS             20
+#define KAFKA_DELETE_RECORDS            21
+#define KAFKA_INIT_PRODUCER_ID          22
+#define KAFKA_OFFSET_FOR_LEADER_EPOCH   23
+#define KAFKA_ADD_PARTITIONS_TO_TXN     24
+#define KAFKA_ADD_OFFSETS_TO_TXN        25
+#define KAFKA_END_TXN                   26
+#define KAFKA_WRITE_TXN_MARKERS         27
+#define KAFKA_TXN_OFFSET_COMMIT         28
+#define KAFKA_DESCRIBE_ACLS             29
+#define KAFKA_CREATE_ACLS               30
+#define KAFKA_DELETE_ACLS               31
+#define KAFKA_DESCRIBE_CONFIGS          32
+#define KAFKA_ALTER_CONFIGS             33
+#define KAFKA_ALTER_REPLICA_LOG_DIRS    34
+#define KAFKA_DESCRIBE_LOG_DIRS         35
+#define KAFKA_SASL_AUTHENTICATE         36
+#define KAFKA_CREATE_PARTITIONS         37
+#define KAFKA_CREATE_DELEGATION_TOKEN   38
+#define KAFKA_RENEW_DELEGATION_TOKEN    39
+#define KAFKA_EXPIRE_DELEGATION_TOKEN   40
+#define KAFKA_DESCRIBE_DELEGATION_TOKEN 41
+#define KAFKA_DELETE_GROUPS             42
+#define KAFKA_ELECT_PREFERRED_LEADERS   43
 static const kafka_api_info_t kafka_apis[] = {
-    { KAFKA_PRODUCE,             "Produce",
+    { KAFKA_PRODUCE,                   "Produce",
       0, 7 },
-    { KAFKA_FETCH,               "Fetch",
+    { KAFKA_FETCH,                     "Fetch",
       0, 10 },
-    { KAFKA_OFFSETS,             "Offsets",
+    { KAFKA_OFFSETS,                   "Offsets",
       0, 1 },
-    { KAFKA_METADATA,            "Metadata",
+    { KAFKA_METADATA,                  "Metadata",
       0, 7 },
-    { KAFKA_LEADER_AND_ISR,      "LeaderAndIsr",
+    { KAFKA_LEADER_AND_ISR,            "LeaderAndIsr",
       0, 0 },
-    { KAFKA_STOP_REPLICA,        "StopReplica",
+    { KAFKA_STOP_REPLICA,              "StopReplica",
       0, 0 },
-    { KAFKA_UPDATE_METADATA,     "UpdateMetadata",
+    { KAFKA_UPDATE_METADATA,           "UpdateMetadata",
       0, 2 },
-    { KAFKA_CONTROLLED_SHUTDOWN, "ControlledShutdown",
+    { KAFKA_CONTROLLED_SHUTDOWN,       "ControlledShutdown",
       1, 1 },
-    { KAFKA_OFFSET_COMMIT,       "OffsetCommit",
+    { KAFKA_OFFSET_COMMIT,             "OffsetCommit",
       0, 3 },
-    { KAFKA_OFFSET_FETCH,        "OffsetFetch",
+    { KAFKA_OFFSET_FETCH,              "OffsetFetch",
       0, 1 },
-    { KAFKA_GROUP_COORDINATOR,   "GroupCoordinator",
+    { KAFKA_GROUP_COORDINATOR,         "GroupCoordinator",
       0, 0 },
-    { KAFKA_JOIN_GROUP,          "JoinGroup",
+    { KAFKA_JOIN_GROUP,                "JoinGroup",
       0, 1 },
-    { KAFKA_HEARTBEAT,           "Heartbeat",
+    { KAFKA_HEARTBEAT,                 "Heartbeat",
       0, 1 },
-    { KAFKA_LEAVE_GROUP,         "LeaveGroup",
+    { KAFKA_LEAVE_GROUP,               "LeaveGroup",
       0, 0 },
-    { KAFKA_SYNC_GROUP,          "SyncGroup",
+    { KAFKA_SYNC_GROUP,                "SyncGroup",
       0, 0 },
-    { KAFKA_DESCRIBE_GROUPS,     "DescribeGroups",
+    { KAFKA_DESCRIBE_GROUPS,           "DescribeGroups",
       0, 0 },
-    { KAFKA_LIST_GROUPS,         "ListGroups",
+    { KAFKA_LIST_GROUPS,               "ListGroups",
       0, 0 },
-    { KAFKA_SASL_HANDSHAKE,      "SaslHandshake",
+    { KAFKA_SASL_HANDSHAKE,            "SaslHandshake",
       0, 0 },
-    { KAFKA_API_VERSIONS,        "ApiVersions",
+    { KAFKA_API_VERSIONS,              "ApiVersions",
       0, 0 },
-    { KAFKA_CREATE_TOPICS,       "CreateTopics",
+    { KAFKA_CREATE_TOPICS,             "CreateTopics",
       0, 0 },
-    { KAFKA_DELETE_TOPICS,       "DeleteTopics",
+    { KAFKA_DELETE_TOPICS,             "DeleteTopics",
+      0, 0 },
+    { KAFKA_DELETE_RECORDS,            "DeleteRecords",
+      0, 1 },
+    { KAFKA_INIT_PRODUCER_ID,          "InitProducerId",
+      0, 1 },
+    { KAFKA_OFFSET_FOR_LEADER_EPOCH,   "OffsetForLeaderEpoch",
+      0, 2 },
+    { KAFKA_ADD_PARTITIONS_TO_TXN,     "AddPartitionsToTxn",
+      0, 1 },
+    { KAFKA_ADD_OFFSETS_TO_TXN,        "AddOffsetsToTxn",
+      0, 1 },
+    { KAFKA_END_TXN,                   "EndTxn",
+      0, 1 },
+    { KAFKA_WRITE_TXN_MARKERS,         "WriteTxnMarkers",
+      0, 0 },
+    { KAFKA_TXN_OFFSET_COMMIT,         "TxnOffsetCommit",
+      0, 2 },
+    { KAFKA_DESCRIBE_ACLS,             "DescribeAcls",
+      0, 1 },
+    { KAFKA_CREATE_ACLS,               "CreateAcls",
+      0, 1 },
+    { KAFKA_DELETE_ACLS,               "DeleteAcls",
+      0, 1 },
+    { KAFKA_DESCRIBE_CONFIGS,          "DescribeConfigs",
+      0, 2 },
+    { KAFKA_ALTER_CONFIGS,             "AlterConfigs",
+      0, 1 },
+    { KAFKA_ALTER_REPLICA_LOG_DIRS,    "AlterReplicaLogDirs",
+      0, 1 },
+    { KAFKA_DESCRIBE_LOG_DIRS,         "DescribeLogDirs",
+      0, 1 },
+    { KAFKA_SASL_AUTHENTICATE,         "SaslAuthenticate",
+      0, 1 },
+    { KAFKA_CREATE_PARTITIONS,         "CreatePartitions",
+      0, 1 },
+    { KAFKA_CREATE_DELEGATION_TOKEN,   "CreateDelegationToken",
+      0, 1 },
+    { KAFKA_RENEW_DELEGATION_TOKEN,    "RenewDelegationToken",
+      0, 1 },
+    { KAFKA_EXPIRE_DELEGATION_TOKEN,   "ExpireDelegationToken",
+      0, 1 },
+    { KAFKA_DESCRIBE_DELEGATION_TOKEN, "DescribeDelegationToken",
+      0, 1 },
+    { KAFKA_DELETE_GROUPS,             "DeleteGroups",
+      0, 1 },
+    { KAFKA_ELECT_PREFERRED_LEADERS,   "ElectPreferredLeaders",
       0, 0 },
 };
 
