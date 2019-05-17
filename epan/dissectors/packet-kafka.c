@@ -275,7 +275,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_SASL_HANDSHAKE,            "SaslHandshake",
       0, 0 },
     { KAFKA_API_VERSIONS,              "ApiVersions",
-      0, 0 },
+      0, 2 },
     { KAFKA_CREATE_TOPICS,             "CreateTopics",
       0, 0 },
     { KAFKA_DELETE_TOPICS,             "DeleteTopics",
@@ -2631,6 +2631,10 @@ dissect_kafka_api_versions_response(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
                                  &dissect_kafka_api_versions_response_api_version);
 
+    if (api_version >= 1) {
+        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
     return offset;
 }
 
