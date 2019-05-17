@@ -84,12 +84,15 @@ static int hf_kafka_message_compression_reduction = -1;
 static int hf_kafka_request_frame = -1;
 static int hf_kafka_response_frame = -1;
 static int hf_kafka_consumer_group = -1;
+static int hf_kafka_coordinator_key = -1;
+static int hf_kafka_coordinator_type = -1;
 static int hf_kafka_group_state = -1;
 static int hf_kafka_offset = -1;
 static int hf_kafka_offset_time = -1;
 static int hf_kafka_max_offsets = -1;
 static int hf_kafka_metadata = -1;
 static int hf_kafka_error = -1;
+static int hf_kafka_error_message = -1;
 static int hf_kafka_broker_nodeid = -1;
 static int hf_kafka_broker_host = -1;
 static int hf_kafka_broker_port = -1;
@@ -203,7 +206,7 @@ typedef struct _kafka_api_info_t {
 #define KAFKA_CONTROLLED_SHUTDOWN        7
 #define KAFKA_OFFSET_COMMIT              8
 #define KAFKA_OFFSET_FETCH               9
-#define KAFKA_GROUP_COORDINATOR         10
+#define KAFKA_FIND_COORDINATOR          10
 #define KAFKA_JOIN_GROUP                11
 #define KAFKA_HEARTBEAT                 12
 #define KAFKA_LEAVE_GROUP               13
@@ -258,8 +261,8 @@ static const kafka_api_info_t kafka_apis[] = {
       0, 3 },
     { KAFKA_OFFSET_FETCH,              "OffsetFetch",
       0, 1 },
-    { KAFKA_GROUP_COORDINATOR,         "GroupCoordinator",
-      0, 0 },
+    { KAFKA_FIND_COORDINATOR,          "FindCoordinator",
+      0, 2 },
     { KAFKA_JOIN_GROUP,                "JoinGroup",
       0, 1 },
     { KAFKA_HEARTBEAT,                 "Heartbeat",
@@ -348,7 +351,7 @@ static const value_string kafka_errors[] = {
     { 11, "Stale Controller Epoch Code" },
     { 12, "Offset Metadata Too Large" },
     { 14, "Offsets Load In Progress" },
-    { 15, "Consumer Coordinator Not Available" },
+    { 15, "The Coordinator is not Available" },
     { 16, "Not Coordinator For Consumer" },
     { 17, "Invalid topic" },
     { 18, "Message batch larger than configured server segment size" },
@@ -3111,25 +3114,35 @@ dissect_kafka_offset_commit_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 /* GROUP_COORDINATOR REQUEST/RESPONSE */
 
 static int
-dissect_kafka_group_coordinator_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+dissect_kafka_find_coordinator_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                         kafka_api_version_t api_version _U_)
 {
     int group_start, group_len;
 
-    /* group_id */
-    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                  &group_start, &group_len);
+    if (api_version == 0) {
+        /* group_id */
+        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
+                                      &group_start, &group_len);
 
-    col_append_fstr(pinfo->cinfo, COL_INFO,
-                    " (Group=%s)",
-                    tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                       group_start, group_len, ENC_UTF_8|ENC_NA));
+        col_append_fstr(pinfo->cinfo, COL_INFO,
+                        " (Group=%s)",
+                        tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                           group_start, group_len, ENC_UTF_8|ENC_NA));
+    } else {
+
+        offset = dissect_kafka_string(tree, hf_kafka_coordinator_key, tvb, pinfo, offset,
+                                      NULL, NULL);
+
+        proto_tree_add_item(tree, hf_kafka_coordinator_type, tvb, offset, 1, ENC_NA);
+        offset += 4;
+        
+    }
 
     return offset;
 }
 
 static int
-dissect_kafka_group_coordinator_response_coordinator(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+dissect_kafka_find_coordinator_response_coordinator(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                                      int offset, kafka_api_version_t api_version _U_)
 {
     proto_item *subti;
@@ -3165,14 +3178,24 @@ dissect_kafka_group_coordinator_response_coordinator(tvbuff_t *tvb, packet_info 
 }
 
 static int
-dissect_kafka_group_coordinator_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+dissect_kafka_find_coordinator_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                          kafka_api_version_t api_version)
 {
+    if ( api_version >= 1 ) {
+        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+    
     /* error_code */
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
+    if ( api_version >= 1 ) {
+        offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset,
+                                      NULL, NULL);
+    }
+
     /* coordinator */
-    offset = dissect_kafka_group_coordinator_response_coordinator(tvb, pinfo, tree, offset, api_version);
+    offset = dissect_kafka_find_coordinator_response_coordinator(tvb, pinfo, tree, offset, api_version);
 
     return offset;
 }
@@ -4066,8 +4089,8 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_OFFSET_FETCH:
                 /*offset =*/ dissect_kafka_offset_fetch_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
-            case KAFKA_GROUP_COORDINATOR:
-                /*offset =*/ dissect_kafka_group_coordinator_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+            case KAFKA_FIND_COORDINATOR:
+                /*offset =*/ dissect_kafka_find_coordinator_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_JOIN_GROUP:
                 /*offset =*/ dissect_kafka_join_group_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
@@ -4182,8 +4205,8 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_OFFSET_FETCH:
                 /*offset =*/ dissect_kafka_offset_fetch_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
-            case KAFKA_GROUP_COORDINATOR:
-                /*offset =*/ dissect_kafka_group_coordinator_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+            case KAFKA_FIND_COORDINATOR:
+                /*offset =*/ dissect_kafka_find_coordinator_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_JOIN_GROUP:
                 /*offset =*/ dissect_kafka_join_group_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
@@ -4300,6 +4323,11 @@ proto_register_kafka(void)
         { &hf_kafka_error,
             { "Error", "kafka.error",
                FT_INT16, BASE_DEC, VALS(kafka_errors), 0,
+               NULL, HFILL }
+        },
+        { &hf_kafka_error_message,
+            { "Error Message", "kafka.error_message",
+               FT_STRING, BASE_NONE, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_request_api_key,
@@ -4535,6 +4563,16 @@ proto_register_kafka(void)
         { &hf_kafka_consumer_group,
             { "Consumer Group", "kafka.consumer_group",
                FT_STRING, BASE_NONE, 0, 0,
+               NULL, HFILL }
+        },
+        { &hf_kafka_coordinator_key,
+            { "Coordinator Key", "kafka.coordinator_key",
+               FT_STRING, BASE_NONE, 0, 0,
+               NULL, HFILL }
+        },
+        { &hf_kafka_coordinator_type,
+            { "Coordinator Type", "kafka.coordinator_type",
+               FT_INT8, BASE_DEC, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_request_frame,
