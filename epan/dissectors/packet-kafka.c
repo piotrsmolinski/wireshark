@@ -278,7 +278,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_DESCRIBE_GROUPS,           "DescribeGroups",
       0, 0 },
     { KAFKA_LIST_GROUPS,               "ListGroups",
-      0, 0 },
+      0, 2 },
     { KAFKA_SASL_HANDSHAKE,            "SaslHandshake",
       0, 0 },
     { KAFKA_API_VERSIONS,              "ApiVersions",
@@ -3844,6 +3844,12 @@ static int
 dissect_kafka_list_groups_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                    kafka_api_version_t api_version)
 {
+
+    if (api_version >= 1) {
+        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+
     /* error_code */
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
