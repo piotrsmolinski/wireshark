@@ -153,6 +153,7 @@ static int ett_kafka_brokers = -1;
 static int ett_kafka_broker_end_point = -1;
 static int ett_kafka_topics = -1;
 static int ett_kafka_topic = -1;
+static int ett_kafka_request_topics = -1;
 static int ett_kafka_request_topic = -1;
 static int ett_kafka_request_partition = -1;
 static int ett_kafka_response_topic = -1;
@@ -262,7 +263,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_OFFSET_COMMIT,             "OffsetCommit",
       0, 3 },
     { KAFKA_OFFSET_FETCH,              "OffsetFetch",
-      0, 1 },
+      0, 5 },
     { KAFKA_FIND_COORDINATOR,          "FindCoordinator",
       0, 2 },
     { KAFKA_JOIN_GROUP,                "JoinGroup",
@@ -1485,6 +1486,16 @@ dissect_kafka_offset(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, in
 }
 
 static int
+dissect_kafka_leader_epoch(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset,
+                     kafka_api_version_t api_version _U_)
+{
+    proto_tree_add_item(tree, hf_kafka_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+    
+    return offset;
+}
+
+static int
 dissect_kafka_offset_time(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset,
                           kafka_api_version_t api_version _U_)
 {
@@ -1502,16 +1513,47 @@ dissect_kafka_offset_fetch_request_topic(tvbuff_t *tvb, packet_info *pinfo, prot
     proto_tree *subtree;
     int         offset = start_offset;
     guint32     count;
+    int topic_start, topic_len;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_topic, &ti, "Offset Fetch Request Topic");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_topic, &ti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+
     count = (gint32)tvb_get_ntohl(tvb, offset);
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_partition_id);
 
     proto_item_set_len(ti, offset - start_offset);
-    proto_item_append_text(ti, " (%u partitions)", count);
+    proto_item_append_text(ti, " (Topic: %s, Partitions: %u)",
+                           tvb_get_string_enc(wmem_packet_scope(), tvb, topic_start, topic_len, ENC_UTF_8|ENC_NA),
+                           count);
 
+    return offset;
+}
+
+static int
+dissect_kafka_offset_fetch_request_topics(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int start_offset,
+                                         kafka_api_version_t api_version)
+{
+    proto_item *ti;
+    proto_tree *subtree;
+    int         offset = start_offset;
+    guint32     count;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_topics, &ti, "Offset Fetch Request Topics");
+    
+    count = (gint32)tvb_get_ntohl(tvb, offset);
+
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_offset_fetch_request_topic);
+    
+    proto_item_set_len(ti, offset - start_offset);
+    
+    if (count < 0) {
+        proto_item_append_text(ti, " (all committed topics)");
+    } else {
+        proto_item_append_text(ti, " (%u topics)", count);
+    }
+    
     return offset;
 }
 
@@ -1520,8 +1562,8 @@ dissect_kafka_offset_fetch_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree
                                    kafka_api_version_t api_version)
 {
     offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
-    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                 &dissect_kafka_offset_fetch_request_topic);
+    
+    offset = dissect_kafka_offset_fetch_request_topics(tvb, pinfo, tree, offset, api_version);
 
     return offset;
 }
@@ -1567,6 +1609,10 @@ dissect_kafka_offset_fetch_response_partition(tvbuff_t *tvb, packet_info *pinfo,
 
     offset = dissect_kafka_partition_id_get_value(tvb, pinfo, subtree, offset, &packet_values);
     offset = dissect_kafka_offset(tvb, pinfo, subtree, offset, api_version);
+    
+    if (api_version >= 5) {
+        offset = dissect_kafka_leader_epoch(tvb, pinfo, subtree, offset, api_version);
+    }
 
     offset = dissect_kafka_string(subtree, hf_kafka_metadata, tvb, pinfo, offset, NULL, NULL);
 
@@ -1603,7 +1649,7 @@ static int
 dissect_kafka_offset_fetch_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                     kafka_api_version_t api_version)
 {
-    if (api_version >= 1) {
+    if (api_version >= 3) {
         proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
     }
@@ -4937,6 +4983,7 @@ proto_register_kafka(void)
         &ett_kafka_broker_end_point,
         &ett_kafka_topics,
         &ett_kafka_topic,
+        &ett_kafka_request_topics,
         &ett_kafka_request_topic,
         &ett_kafka_request_partition,
         &ett_kafka_response_topic,
