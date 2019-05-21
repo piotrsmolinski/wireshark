@@ -94,6 +94,7 @@ static int hf_kafka_metadata = -1;
 static int hf_kafka_error = -1;
 static int hf_kafka_error_message = -1;
 static int hf_kafka_broker_nodeid = -1;
+static int hf_kafka_broker_epoch = -1;
 static int hf_kafka_broker_host = -1;
 static int hf_kafka_broker_port = -1;
 static int hf_kafka_broker_rack = -1;
@@ -259,7 +260,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_UPDATE_METADATA,           "UpdateMetadata",
       0, 2 },
     { KAFKA_CONTROLLED_SHUTDOWN,       "ControlledShutdown",
-      1, 1 },
+      0, 2 },
     { KAFKA_OFFSET_COMMIT,             "OffsetCommit",
       0, 6 },
     { KAFKA_OFFSET_FETCH,              "OffsetFetch",
@@ -3005,6 +3006,11 @@ dissect_kafka_controlled_shutdown_request(tvbuff_t *tvb, packet_info *pinfo, pro
     broker_id = (gint32) tvb_get_ntohl(tvb, offset);
     proto_tree_add_item(tree, hf_kafka_broker_nodeid, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
+    
+    if (api_version >= 2) {
+        proto_tree_add_item(tree, hf_kafka_broker_epoch, tvb, offset, 8, ENC_BIG_ENDIAN);
+        offset += 8;
+    }
 
     col_append_fstr(pinfo->cinfo, COL_INFO, " (Broker-ID=%d)", broker_id);
 
@@ -4721,6 +4727,11 @@ proto_register_kafka(void)
         { &hf_kafka_broker_nodeid,
             { "Node ID", "kafka.node_id",
                FT_INT32, BASE_DEC, 0, 0,
+               NULL, HFILL }
+        },
+        { &hf_kafka_broker_epoch,
+            { "Broker Epoch", "kafka.broker_epoch",
+               FT_INT64, BASE_DEC, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_broker_host,
