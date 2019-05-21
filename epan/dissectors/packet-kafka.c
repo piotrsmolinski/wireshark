@@ -96,6 +96,7 @@ static int hf_kafka_error_message = -1;
 static int hf_kafka_broker_nodeid = -1;
 static int hf_kafka_broker_epoch = -1;
 static int hf_kafka_broker_host = -1;
+static int hf_kafka_listener_name = -1;
 static int hf_kafka_broker_port = -1;
 static int hf_kafka_broker_rack = -1;
 static int hf_kafka_broker_security_protocol_type = -1;
@@ -258,7 +259,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_STOP_REPLICA,              "StopReplica",
       0, 0 },
     { KAFKA_UPDATE_METADATA,           "UpdateMetadata",
-      0, 2 },
+      0, 5 },
     { KAFKA_CONTROLLED_SHUTDOWN,       "ControlledShutdown",
       0, 2 },
     { KAFKA_OFFSET_COMMIT,             "OffsetCommit",
@@ -2866,9 +2867,11 @@ dissect_kafka_update_metadata_request_partition_state(tvbuff_t *tvb, packet_info
                                      ett_kafka_request_partition,
                                      &subti, "Partition State");
 
-    /* topic */
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
-                                  &topic_start, &topic_len);
+    if (api_version < 5) {
+        /* topic */
+        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
+                                      &topic_start, &topic_len);
+    }
 
     /* partition */
     partition = (gint32) tvb_get_ntohl(tvb, offset);
@@ -2908,10 +2911,41 @@ dissect_kafka_update_metadata_request_partition_state(tvbuff_t *tvb, packet_info
     proto_item_set_end(subsubti, tvb, offset);
 
     proto_item_set_end(subti, tvb, offset);
-    proto_item_append_text(subti, " (Topic=%s, Partition-ID=%u)",
+
+    if (api_version >= 5) {
+        proto_item_append_text(subti, " (Partition-ID=%u)",
+                               partition);
+    } else {
+        proto_item_append_text(subti, " (Topic=%s, Partition-ID=%u)",
+                               tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                                  topic_start, topic_len, ENC_UTF_8|ENC_NA),
+                               partition);
+    }
+    return offset;
+}
+
+static int
+dissect_kafka_update_metadata_request_topic_state(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                                      int offset, kafka_api_version_t api_version)
+{
+    proto_tree *subtree;
+    proto_item *subti;
+    int topic_start, topic_len;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_request_topic,
+                                     &subti, "Topic State");
+    /* topic */
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
+                                  &topic_start, &topic_len);
+
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_update_metadata_request_partition_state);
+
+    proto_item_set_end(subti, tvb, offset);
+    proto_item_append_text(subti, " (Topic=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA),
-                           partition);
+                                    topic_start, topic_len, ENC_UTF_8|ENC_NA));
 
     return offset;
 }
@@ -2936,6 +2970,11 @@ dissect_kafka_update_metadata_request_end_point(tvbuff_t *tvb, packet_info *pinf
 
     /* host */
     offset = dissect_kafka_string(subtree, hf_kafka_broker_host, tvb, pinfo, offset, &host_start, &host_len);
+
+    if (api_version >= 3) {
+        /* listener_name */
+        offset = dissect_kafka_string(subtree, hf_kafka_listener_name, tvb, pinfo, offset, NULL, NULL);
+    }
 
     /* security_protocol_type */
     security_protocol_type = (gint16) tvb_get_ntohs(tvb, offset);
@@ -3020,9 +3059,21 @@ dissect_kafka_update_metadata_request(tvbuff_t *tvb, packet_info *pinfo, proto_t
     proto_tree_add_item(tree, hf_kafka_controller_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
-    /* [partition_state] */
-    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                 &dissect_kafka_update_metadata_request_partition_state);
+    if (api_version >= 5) {
+        /* controller_epoch */
+        proto_tree_add_item(tree, hf_kafka_broker_epoch, tvb, offset, 8, ENC_BIG_ENDIAN);
+        offset += 8;
+    }
+
+    if (api_version >= 5) {
+        /* [topic_state] */
+        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_update_metadata_request_topic_state);
+    } else {
+        /* [partition_state] */
+        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_update_metadata_request_partition_state);
+    }
 
     /* [live_leader] */
     offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
@@ -4797,6 +4848,11 @@ proto_register_kafka(void)
         },
         { &hf_kafka_broker_host,
             { "Host", "kafka.host",
+               FT_STRING, BASE_NONE, 0, 0,
+               NULL, HFILL }
+        },
+        { &hf_kafka_listener_name,
+            { "Host", "kafka.listener_name",
                FT_STRING, BASE_NONE, 0, 0,
                NULL, HFILL }
         },
