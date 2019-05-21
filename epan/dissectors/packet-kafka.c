@@ -142,6 +142,7 @@ static int hf_kafka_record_headers_count = -1;
 static int hf_kafka_record_length = -1;
 static int hf_kafka_record_attributes = -1;
 static int hf_kafka_allow_auto_topic_creation = -1;
+static int hf_kafka_validate_only = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
@@ -285,7 +286,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_API_VERSIONS,              "ApiVersions",
       0, 2 },
     { KAFKA_CREATE_TOPICS,             "CreateTopics",
-      0, 0 },
+      0, 3 },
     { KAFKA_DELETE_TOPICS,             "DeleteTopics",
       0, 0 },
     { KAFKA_DELETE_RECORDS,            "DeleteRecords",
@@ -4095,6 +4096,12 @@ dissect_kafka_create_topics_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     /* timeout */
     proto_tree_add_item(tree, hf_kafka_timeout, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
+    
+    if (api_version >= 1) {
+        /* validate */
+        proto_tree_add_item(tree, hf_kafka_validate_only, tvb, offset, 1, ENC_NA);
+        offset += 1;
+    }
 
     return offset;
 }
@@ -4133,6 +4140,11 @@ dissect_kafka_create_topics_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 {
     proto_item *subti;
     proto_tree *subtree;
+
+    if (api_version >= 2) {
+        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
 
     /* [topic_error_code] */
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
@@ -5098,6 +5110,11 @@ proto_register_kafka(void)
         },
         { &hf_kafka_allow_auto_topic_creation,
             { "Allow Auto Topic Creation", "kafka.allow_auto_topic_creation",
+                FT_BOOLEAN, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_validate_only,
+            { "Only Validate the Request", "kafka.validate_only",
                 FT_BOOLEAN, BASE_NONE, 0, 0,
                 NULL, HFILL }
         },
