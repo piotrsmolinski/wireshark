@@ -282,7 +282,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_LIST_GROUPS,               "ListGroups",
       0, 2 },
     { KAFKA_SASL_HANDSHAKE,            "SaslHandshake",
-      0, 0 },
+      0, 1 },
     { KAFKA_API_VERSIONS,              "ApiVersions",
       0, 2 },
     { KAFKA_CREATE_TOPICS,             "CreateTopics",
