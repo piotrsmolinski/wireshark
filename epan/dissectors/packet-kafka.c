@@ -476,6 +476,12 @@ static const value_string kafka_security_protocol_types[] = {
     { 0, NULL }
 };
 
+static const value_string kafka_isolation_levels[] = {
+    { 0, "Read Uncommitted" },
+    { 1, "Read Committed" },
+    { 0, NULL }
+};
+
 /* List/range of TCP ports to register */
 static range_t *current_kafka_tcp_range = NULL;
 
@@ -4703,7 +4709,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_isolation_level,
             { "Isolation Level", "kafka.isolation_level",
-               FT_INT8, BASE_DEC, 0, 0,
+               FT_INT8, BASE_DEC, VALS(kafka_isolation_levels), 0,
                NULL, HFILL }
         },
         { &hf_kafka_max_wait_time,
