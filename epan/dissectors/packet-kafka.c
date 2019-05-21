@@ -1619,8 +1619,11 @@ dissect_kafka_metadata_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 {
     offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
                                &dissect_kafka_metadata_request_topic);
-    proto_tree_add_item(tree, hf_kafka_allow_auto_topic_creation, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
+    
+    if (api_version >= 4) {
+        proto_tree_add_item(tree, hf_kafka_allow_auto_topic_creation, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+    }
     
     return offset;
 }
