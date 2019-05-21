@@ -268,7 +268,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_JOIN_GROUP,                "JoinGroup",
       0, 4 },
     { KAFKA_HEARTBEAT,                 "Heartbeat",
-      0, 1 },
+      0, 2 },
     { KAFKA_LEAVE_GROUP,               "LeaveGroup",
       0, 2 },
     { KAFKA_SYNC_GROUP,                "SyncGroup",
