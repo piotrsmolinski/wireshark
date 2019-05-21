@@ -261,7 +261,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_CONTROLLED_SHUTDOWN,       "ControlledShutdown",
       1, 1 },
     { KAFKA_OFFSET_COMMIT,             "OffsetCommit",
-      0, 3 },
+      0, 6 },
     { KAFKA_OFFSET_FETCH,              "OffsetFetch",
       0, 5 },
     { KAFKA_FIND_COORDINATOR,          "FindCoordinator",
@@ -3080,6 +3080,11 @@ dissect_kafka_offset_commit_request_partition(tvbuff_t *tvb, packet_info *pinfo,
     proto_tree_add_item(subtree, hf_kafka_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
 
+    if (api_version >= 6) {
+        proto_tree_add_item(subtree, hf_kafka_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+
     if (api_version == 1) {
         /* timestamp */
         offset = dissect_kafka_timestamp(tvb, pinfo, subtree, hf_kafka_commit_timestamp, offset);
@@ -3139,7 +3144,7 @@ dissect_kafka_offset_commit_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
         /* member_id */
         offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset, NULL, NULL);
 
-        if (api_version >= 2) {
+        if (api_version >= 2 && api_version < 5) {
             /* retention_time */
             proto_tree_add_item(tree, hf_kafka_retention_time, tvb, offset, 8, ENC_BIG_ENDIAN);
             offset += 8;
@@ -3215,7 +3220,7 @@ static int
 dissect_kafka_offset_commit_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                      kafka_api_version_t api_version)
 {
-    if (api_version >= 1) {
+    if (api_version >= 3) {
         proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
     }
