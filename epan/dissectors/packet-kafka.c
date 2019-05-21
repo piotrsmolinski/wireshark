@@ -288,7 +288,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_CREATE_TOPICS,             "CreateTopics",
       0, 3 },
     { KAFKA_DELETE_TOPICS,             "DeleteTopics",
-      0, 0 },
+      0, 3 },
     { KAFKA_DELETE_RECORDS,            "DeleteRecords",
       0, 1 },
     { KAFKA_INIT_PRODUCER_ID,          "InitProducerId",
@@ -4225,6 +4225,11 @@ dissect_kafka_delete_topics_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 {
     proto_item *subti;
     proto_tree *subtree;
+
+    if (api_version >= 3) {
+        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
 
     /* [topic_error_code] */
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
