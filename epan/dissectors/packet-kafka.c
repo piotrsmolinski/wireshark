@@ -173,6 +173,8 @@ static int ett_kafka_request_forgotten_topic = -1;
 static int ett_kafka_record = -1;
 static int ett_kafka_record_headers = -1;
 static int ett_kafka_record_headers_header = -1;
+static int ett_kafka_aborted_transactions = -1;
+static int ett_kafka_aborted_transaction = -1;
 
 static expert_field ei_kafka_request_missing = EI_INIT;
 static expert_field ei_kafka_unknown_api_key = EI_INIT;
@@ -2255,7 +2257,7 @@ dissect_kafka_aborted_transaction(tvbuff_t *tvb, packet_info *pinfo _U_, proto_t
     proto_tree *subtree;
     int         offset = start_offset;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_topic, &ti, "Fetch Response Aborted Transaction");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_aborted_transaction, &ti, "Transaction");
 
     proto_tree_add_item(subtree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
@@ -2264,6 +2266,24 @@ dissect_kafka_aborted_transaction(tvbuff_t *tvb, packet_info *pinfo _U_, proto_t
     offset += 8;
 
     proto_item_set_len(ti, offset - start_offset);
+
+    return offset;
+}
+
+static int
+dissect_kafka_aborted_transactions(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+                                  int start_offset, kafka_api_version_t api_version _U_)
+{
+    proto_item *ti;
+    proto_tree *subtree;
+    int         offset = start_offset;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_aborted_transactions, &ti, "Aborted Transactions");
+    
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_aborted_transaction);
+
+    proto_item_set_len(ti, offset - start_offset);
+
     return offset;
 }
 
@@ -2288,13 +2308,15 @@ dissect_kafka_fetch_response_partition(tvbuff_t *tvb, packet_info *pinfo, proto_
     if (api_version >= 4) {
         proto_tree_add_item(subtree, hf_kafka_last_stable_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
         offset += 8;
+    }
 
-        if (api_version >= 5) {
-            proto_tree_add_item(subtree, hf_kafka_log_start_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
-            offset += 8;
-        }
+    if (api_version >= 5) {
+        proto_tree_add_item(subtree, hf_kafka_log_start_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
+        offset += 8;
+    }
 
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_aborted_transaction);
+    if (api_version >= 4) {
+        offset = dissect_kafka_aborted_transactions(tvb, pinfo, subtree, offset, api_version);
     }
 
     offset = dissect_kafka_message_set(tvb, pinfo, subtree, offset, TRUE, KAFKA_MESSAGE_CODEC_NONE);
@@ -4918,6 +4940,8 @@ proto_register_kafka(void)
         &ett_kafka_record,
         &ett_kafka_record_headers,
         &ett_kafka_record_headers_header,
+        &ett_kafka_aborted_transactions,
+        &ett_kafka_aborted_transaction,
     };
 
     static ei_register_info ei[] = {
