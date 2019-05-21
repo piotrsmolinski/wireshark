@@ -270,7 +270,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_HEARTBEAT,                 "Heartbeat",
       0, 1 },
     { KAFKA_LEAVE_GROUP,               "LeaveGroup",
-      0, 0 },
+      0, 2 },
     { KAFKA_SYNC_GROUP,                "SyncGroup",
       0, 2 },
     { KAFKA_DESCRIBE_GROUPS,           "DescribeGroups",
@@ -3491,6 +3491,12 @@ static int
 dissect_kafka_leave_group_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                    kafka_api_version_t api_version _U_)
 {
+
+    if (api_version >= 1) {
+        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+
     /* error_code */
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
