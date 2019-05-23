@@ -146,6 +146,7 @@ static int hf_kafka_record_length = -1;
 static int hf_kafka_record_attributes = -1;
 static int hf_kafka_allow_auto_topic_creation = -1;
 static int hf_kafka_validate_only = -1;
+static int hf_kafka_coordinator_epoch = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
@@ -157,6 +158,8 @@ static int ett_kafka_offline = -1;
 static int ett_kafka_broker = -1;
 static int ett_kafka_brokers = -1;
 static int ett_kafka_broker_end_point = -1;
+static int ett_kafka_markers = -1;
+static int ett_kafka_marker = -1;
 static int ett_kafka_topics = -1;
 static int ett_kafka_topic = -1;
 static int ett_kafka_partitions = -1;
@@ -4787,6 +4790,205 @@ dissect_kafka_end_txn_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
     return offset;
 }
 
+/* WRITE_TXN_MARKERS REQUEST/RESPONSE */
+
+static int
+dissect_kafka_write_txn_markers_request_partition(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+                                                     int offset, kafka_api_version_t api_version _U_)
+{
+    
+    proto_tree_add_item(tree, hf_kafka_partition_id, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    return offset;
+}
+
+static int
+dissect_kafka_write_txn_markers_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                           int offset, kafka_api_version_t api_version _U_)
+{
+    
+    int topic_start, topic_len;
+    proto_item *subti, *subsubti;
+    proto_tree *subtree, *subsubtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    
+    subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_write_txn_markers_request_partition);
+    proto_item_set_end(subsubti, tvb, offset);
+    
+    proto_item_set_end(subti, tvb, offset);
+    proto_item_append_text(subti, " (Topic=%s)",
+                           tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+    
+    return offset;
+}
+
+static int
+dissect_kafka_write_txn_markers_request_marker(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                     kafka_api_version_t api_version)
+{
+    guint64 producer_id;
+    proto_item *subti, *subsubti;
+    proto_tree *subtree, *subsubtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_marker,
+                                     &subti, "Marker");
+
+    producer_id = tvb_get_ntoh64(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
+    offset += 8;
+
+    proto_tree_add_item(subtree, hf_kafka_batch_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
+
+    proto_tree_add_item(subtree, hf_kafka_transaction_result, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
+
+    subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
+                                     ett_kafka_topics,
+                                     &subsubti, "Topics");
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_write_txn_markers_request_topic);
+    
+    proto_tree_add_item(subsubtree, hf_kafka_coordinator_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    proto_item_set_end(subsubti, tvb, offset);
+    proto_item_set_end(subti, tvb, offset);
+    proto_item_append_text(subti, " (Producer=%" G_GINT64_MODIFIER "u)", producer_id);
+
+    return offset;
+}
+
+static int
+dissect_kafka_write_txn_markers_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                kafka_api_version_t api_version)
+{
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    /* [topic] */
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_markers,
+                                     &subti, "Markers");
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_write_txn_markers_request_marker);
+    proto_item_set_end(subti, tvb, offset);
+    
+    return offset;
+}
+
+static int
+dissect_kafka_write_txn_markers_response_partition(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+                                                      int offset, kafka_api_version_t api_version _U_)
+{
+    
+    guint32 partition_id;
+    kafka_error_t partition_error_code;
+    
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &subti, "Partition");
+    
+    partition_id = tvb_get_ntohl(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_partition_id, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+    
+    partition_error_code = (kafka_error_t) tvb_get_ntohs(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_error, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
+    
+    proto_item_set_end(subti, tvb, offset);
+    
+    if (partition_error_code == 0) {
+        proto_item_append_text(subti, " (ID=%u", partition_id);
+    } else {
+        proto_item_append_text(subti, " (ID=%u, Error=%s)", partition_id, kafka_error_to_str(partition_error_code));
+    }
+    
+    return offset;
+}
+
+static int
+dissect_kafka_write_txn_markers_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                            int offset, kafka_api_version_t api_version _U_)
+{
+    
+    int topic_start, topic_len;
+    proto_item *subti, *subsubti;
+    proto_tree *subtree, *subsubtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    
+    subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_write_txn_markers_response_partition);
+    proto_item_set_end(subsubti, tvb, offset);
+    
+    proto_item_set_end(subti, tvb, offset);
+    proto_item_append_text(subti, " (Topic=%s)",
+                           tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+    
+    return offset;
+}
+
+static int
+dissect_kafka_write_txn_markers_response_marker(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                               int offset, kafka_api_version_t api_version _U_)
+{
+    
+    guint64 producer_id;
+    proto_item *subti, *subsubti;
+    proto_tree *subtree, *subsubtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_marker, &subti, "Marker");
+    
+    producer_id = tvb_get_ntoh64(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
+    offset += 8;
+    
+    subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Topics");
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_write_txn_markers_response_topic);
+    proto_item_set_end(subsubti, tvb, offset);
+    
+    proto_item_set_end(subti, tvb, offset);
+    proto_item_append_text(subti, " (Producer=%" G_GINT64_MODIFIER "u)", producer_id);
+
+    return offset;
+}
+
+static int
+dissect_kafka_write_txn_markers_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                      kafka_api_version_t api_version)
+{
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_markers,
+                                     &subti, "Markers");
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_write_txn_markers_response_marker);
+    
+    proto_item_set_end(subti, tvb, offset);
+    
+    return offset;
+}
+
 /* MAIN */
 
 static int
@@ -4958,6 +5160,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_END_TXN:
                 /*offset =*/ dissect_kafka_end_txn_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_WRITE_TXN_MARKERS:
+                /*offset =*/ dissect_kafka_write_txn_markers_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
         }
     }
     else {
@@ -5091,6 +5296,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_END_TXN:
                 /*offset =*/ dissect_kafka_end_txn_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_WRITE_TXN_MARKERS:
+                /*offset =*/ dissect_kafka_write_txn_markers_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
         }
 
@@ -5719,6 +5927,12 @@ proto_register_kafka(void)
                 FT_BOOLEAN, BASE_NONE, 0, 0,
                 NULL, HFILL }
         },
+        { &hf_kafka_coordinator_epoch,
+            { "Coordinator Epoch", "kafka.coordinator_epoch",
+                FT_INT32, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
+        
     };
 
     static int *ett[] = {
@@ -5732,6 +5946,8 @@ proto_register_kafka(void)
         &ett_kafka_broker,
         &ett_kafka_brokers,
         &ett_kafka_broker_end_point,
+        &ett_kafka_markers,
+        &ett_kafka_marker,
         &ett_kafka_topics,
         &ett_kafka_topic,
         &ett_kafka_partitions,
