@@ -147,6 +147,8 @@ static int hf_kafka_record_attributes = -1;
 static int hf_kafka_allow_auto_topic_creation = -1;
 static int hf_kafka_validate_only = -1;
 static int hf_kafka_coordinator_epoch = -1;
+static int hf_kafka_sasl_auth_bytes = -1;
+static int hf_kafka_session_lifetime_ms = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
@@ -5157,6 +5159,36 @@ dissect_kafka_txn_offset_commit_response(tvbuff_t *tvb, packet_info *pinfo, prot
     return offset;
 }
 
+/* SASL_AUTHENTICATE REQUEST/RESPONSE */
+
+static int
+dissect_kafka_sasl_authenticate_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                         kafka_api_version_t api_version _U_)
+{
+    offset = dissect_kafka_bytes(tree, hf_kafka_sasl_auth_bytes, tvb, pinfo, offset, NULL, NULL);
+    
+    return offset;
+}
+
+
+static int
+dissect_kafka_sasl_authenticate_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                          kafka_api_version_t api_version _U_)
+{
+    
+    offset = dissect_kafka_error(tvb, pinfo, tree, offset);
+
+    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+
+    offset = dissect_kafka_bytes(tree, hf_kafka_sasl_auth_bytes, tvb, pinfo, offset, NULL, NULL);
+
+    if (api_version >= 1) {
+        proto_tree_add_item(tree, hf_kafka_session_lifetime_ms, tvb, offset, 8, ENC_BIG_ENDIAN);
+        offset += 8;
+    }
+
+    return offset;
+}
 
 /* MAIN */
 
@@ -5335,6 +5367,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_TXN_OFFSET_COMMIT:
                 /*offset =*/ dissect_kafka_txn_offset_commit_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_SASL_AUTHENTICATE:
+                /*offset =*/ dissect_kafka_sasl_authenticate_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
         }
     }
     else {
@@ -5474,6 +5509,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_TXN_OFFSET_COMMIT:
                 /*offset =*/ dissect_kafka_txn_offset_commit_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_SASL_AUTHENTICATE:
+                /*offset =*/ dissect_kafka_sasl_authenticate_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
         }
 
@@ -6107,7 +6145,16 @@ proto_register_kafka(void)
                 FT_INT32, BASE_DEC, 0, 0,
                 NULL, HFILL }
         },
-        
+        { &hf_kafka_sasl_auth_bytes,
+            { "SASL Authentication Bytes", "kafka.header_value",
+                FT_BYTES, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_session_lifetime_ms,
+            { "Session Lifetime (ms)", "kafka.session_lifetime_ms",
+                FT_INT64, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
     };
 
     static int *ett[] = {
