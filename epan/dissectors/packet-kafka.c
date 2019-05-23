@@ -109,6 +109,7 @@ static int hf_kafka_delete_partitions = -1;
 static int hf_kafka_leader_id = -1;
 static int hf_kafka_group_leader_id = -1;
 static int hf_kafka_leader_epoch = -1;
+static int hf_kafka_current_leader_epoch = -1;
 static int hf_kafka_is_internal = -1;
 static int hf_kafka_isolation_level = -1;
 static int hf_kafka_min_bytes = -1;
@@ -4416,6 +4417,168 @@ dissect_kafka_init_producer_id_response(tvbuff_t *tvb, packet_info *pinfo, proto
     return offset;
 }
 
+/* OFFSET_FOR_LEADER_EPOCH REQUEST/RESPONSE */
+
+static int
+dissect_kafka_offset_for_leader_epoch_request_topic_partition(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+                                                            int offset, kafka_api_version_t api_version)
+{
+    
+    guint32 partition_id;
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &subti, "Partition");
+
+    partition_id = tvb_get_ntohl(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_partition_id, tvb, offset, 4, ENC_BIG_ENDIAN);
+
+    if (api_version >= 2) {
+        proto_tree_add_item(subtree, hf_kafka_current_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+    }
+
+    proto_tree_add_item(subtree, hf_kafka_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+
+    proto_item_set_end(subti, tvb, offset);
+    
+    proto_item_append_text(subti, " (ID=%u)", partition_id);
+
+    return offset;
+}
+
+static int
+dissect_kafka_offset_for_leader_epoch_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                                  int offset, kafka_api_version_t api_version _U_)
+{
+    
+    int topic_start, topic_len;
+    proto_item *subti, *subsubti;
+    proto_tree *subtree, *subsubtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    
+    subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_offset_for_leader_epoch_request_topic_partition);
+    proto_item_set_end(subsubti, tvb, offset);
+    
+    proto_item_set_end(subti, tvb, offset);
+    proto_item_append_text(subti, " (Name=%s)",
+                           tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+    
+    return offset;
+}
+
+static int
+dissect_kafka_offset_for_leader_epoch_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                            kafka_api_version_t api_version)
+{
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    /* [topic] */
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_topics,
+                                     &subti, "Topics");
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_offset_for_leader_epoch_request_topic);
+    proto_item_set_end(subti, tvb, offset);
+    
+    return offset;
+}
+
+static int
+dissect_kafka_offset_for_leader_epoch_response_topic_partition(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+                                                             int offset, kafka_api_version_t api_version _U_)
+{
+    
+    guint32 partition_id;
+    kafka_error_t partition_error_code;
+    
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &subti, "Partition");
+    
+    partition_error_code = (kafka_error_t) tvb_get_ntohs(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_error, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
+    
+    partition_id = tvb_get_ntohl(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_partition_id, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    if (api_version >= 1) {
+        proto_tree_add_item(subtree, hf_kafka_partition_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+    
+    proto_tree_add_item(subtree, hf_kafka_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
+    offset += 8;
+
+    proto_item_set_end(subti, tvb, offset);
+    
+    if (partition_error_code == 0) {
+        proto_item_append_text(subti, " (ID=%u)", partition_id);
+    } else {
+        proto_item_append_text(subti, " (ID=%u, Error=%s)", partition_id, kafka_error_to_str(partition_error_code));
+    }
+    
+    return offset;
+}
+
+static int
+dissect_kafka_offset_for_leader_epoch_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                                   int offset, kafka_api_version_t api_version _U_)
+{
+    
+    int topic_start, topic_len;
+    proto_item *subti, *subsubti;
+    proto_tree *subtree, *subsubtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    
+    subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_offset_for_leader_epoch_response_topic_partition);
+    proto_item_set_end(subsubti, tvb, offset);
+    
+    proto_item_set_end(subti, tvb, offset);
+    proto_item_append_text(subti, " (Name=%s)",
+                           tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+    
+    return offset;
+}
+
+
+static int
+dissect_kafka_offset_for_leader_epoch_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                             kafka_api_version_t api_version)
+{
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    if (api_version >= 2) {
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
+    }
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_topics,
+                                     &subti, "Topics");
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_offset_for_leader_epoch_response_topic);
+    
+    proto_item_set_end(subti, tvb, offset);
+    
+    return offset;
+}
+
 /* ADD_PARTITIONS_TO_TXN REQUEST/RESPONSE */
 
 static int
@@ -4783,6 +4946,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_INIT_PRODUCER_ID:
                 /*offset =*/ dissect_kafka_init_producer_id_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_OFFSET_FOR_LEADER_EPOCH:
+                /*offset =*/ dissect_kafka_offset_for_leader_epoch_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
             case KAFKA_ADD_PARTITIONS_TO_TXN:
                 /*offset =*/ dissect_kafka_add_partitions_to_txn_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
@@ -4913,6 +5079,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_INIT_PRODUCER_ID:
                 /*offset =*/ dissect_kafka_init_producer_id_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_OFFSET_FOR_LEADER_EPOCH:
+                /*offset =*/ dissect_kafka_offset_for_leader_epoch_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_ADD_PARTITIONS_TO_TXN:
                 /*offset =*/ dissect_kafka_add_partitions_to_txn_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
@@ -5342,6 +5511,11 @@ proto_register_kafka(void)
         },
         { &hf_kafka_leader_epoch,
             { "Leader Epoch", "kafka.leader_epoch",
+               FT_INT32, BASE_DEC, 0, 0,
+               NULL, HFILL }
+        },
+        { &hf_kafka_current_leader_epoch,
+            { "Leader Epoch", "kafka.current_leader_epoch",
                FT_INT32, BASE_DEC, 0, 0,
                NULL, HFILL }
         },
