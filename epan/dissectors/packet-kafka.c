@@ -46,6 +46,7 @@ static int hf_kafka_required_acks = -1;
 static int hf_kafka_timeout = -1;
 static int hf_kafka_topic_name = -1;
 static int hf_kafka_transactional_id = -1;
+static int hf_kafka_transaction_result = -1;
 static int hf_kafka_partition_id = -1;
 static int hf_kafka_replica = -1;
 static int hf_kafka_replication_factor = -1;
@@ -487,6 +488,12 @@ static const value_string kafka_security_protocol_types[] = {
 static const value_string kafka_isolation_levels[] = {
     { 0, "Read Uncommitted" },
     { 1, "Read Committed" },
+    { 0, NULL }
+};
+
+static const value_string kafka_transaction_results[] = {
+    { 0, "ABORT" },
+    { 1, "COMMIT" },
     { 0, NULL }
 };
 
@@ -1577,6 +1584,14 @@ dissect_kafka_error(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int off
 }
 
 static int
+dissect_kafka_throttle_time(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset)
+{
+    proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+    return offset;
+}
+
+static int
 dissect_kafka_offset_fetch_response_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                               int start_offset, kafka_api_version_t api_version)
 {
@@ -1631,8 +1646,7 @@ dissect_kafka_offset_fetch_response(tvbuff_t *tvb, packet_info *pinfo, proto_tre
                                     kafka_api_version_t api_version)
 {
     if (api_version >= 3) {
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
     return dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
@@ -1811,8 +1825,7 @@ dissect_kafka_metadata_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_brokers, &ti, "Broker Metadata");
     
     if (api_version >= 3) {
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_broker);
@@ -2432,14 +2445,11 @@ dissect_kafka_fetch_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
                              kafka_api_version_t api_version)
 {
     if (api_version >= 1) {
-        /* Throttle time */
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
     if (api_version >= 7) {
-        proto_tree_add_item(tree, hf_kafka_error, tvb, offset, 2, ENC_BIG_ENDIAN);
-        offset += 2;
+        offset = dissect_kafka_error(tvb, pinfo, tree, offset);
     }
 
     if (api_version >= 7) {
@@ -2569,9 +2579,7 @@ dissect_kafka_produce_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
     offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version, &dissect_kafka_produce_response_topic);
 
     if (api_version >= 1) {
-        /* Throttle time */
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
     return offset;
@@ -2703,8 +2711,7 @@ dissect_kafka_offsets_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
     int offset = start_offset;
 
     if (api_version >= 2) {
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
     
     return dissect_kafka_array(tree, tvb, pinfo, offset, api_version, &dissect_kafka_offsets_response_topic);
@@ -2803,8 +2810,7 @@ dissect_kafka_api_versions_response(tvbuff_t *tvb, packet_info *pinfo, proto_tre
                                  &dissect_kafka_api_versions_response_api_version);
 
     if (api_version >= 1) {
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
     return offset;
 }
@@ -3306,8 +3312,7 @@ dissect_kafka_offset_commit_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
                                      kafka_api_version_t api_version)
 {
     if (api_version >= 3) {
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
     /* [responses] */
@@ -3388,8 +3393,7 @@ dissect_kafka_find_coordinator_response(tvbuff_t *tvb, packet_info *pinfo, proto
                                          kafka_api_version_t api_version)
 {
     if ( api_version >= 1 ) {
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
     
     /* error_code */
@@ -3515,8 +3519,7 @@ dissect_kafka_join_group_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
     int member_start, member_len;
 
     if (api_version >= 2) {
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
     /* error_code */
@@ -3586,8 +3589,7 @@ dissect_kafka_heartbeat_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
                                  kafka_api_version_t api_version _U_)
 {
     if (api_version >= 1) {
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
     /* error_code */
@@ -3629,8 +3631,7 @@ dissect_kafka_leave_group_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 {
 
     if (api_version >= 1) {
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
     /* error_code */
@@ -3711,8 +3712,7 @@ dissect_kafka_sync_group_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 {
 
     if (api_version >= 1) {
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
     /* error_code */
@@ -3827,8 +3827,7 @@ dissect_kafka_describe_groups_response(tvbuff_t *tvb, packet_info *pinfo, proto_
 {
 
     if (api_version >= 1) {
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
     /* [group] */
@@ -3882,8 +3881,7 @@ dissect_kafka_list_groups_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 {
 
     if (api_version >= 1) {
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
     /* error_code */
@@ -4120,8 +4118,7 @@ dissect_kafka_create_topics_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
     proto_tree *subtree;
 
     if (api_version >= 2) {
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
     /* [topic_error_code] */
@@ -4205,8 +4202,7 @@ dissect_kafka_delete_topics_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
     proto_tree *subtree;
 
     if (api_version >= 3) {
-        proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
     /* [topic_error_code] */
@@ -4372,10 +4368,8 @@ dissect_kafka_delete_records_response(tvbuff_t *tvb, packet_info *pinfo, proto_t
     proto_item *subti;
     proto_tree *subtree;
     
-    proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
+    offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
 
-    
     /* [topic_error_code] */
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
@@ -4518,8 +4512,7 @@ dissect_kafka_add_partitions_to_txn_response(tvbuff_t *tvb, packet_info *pinfo, 
     proto_item *subti;
     proto_tree *subtree;
     
-    proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
+    offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
@@ -4528,9 +4521,43 @@ dissect_kafka_add_partitions_to_txn_response(tvbuff_t *tvb, packet_info *pinfo, 
                                  &dissect_kafka_add_partitions_to_txn_response_topic);
     
     proto_item_set_end(subti, tvb, offset);
-    
+
     return offset;
 }
+
+/* END_TXN REQUEST/RESPONSE */
+
+static int
+dissect_kafka_end_txn_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                            kafka_api_version_t api_version _U_)
+{
+    offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, NULL, NULL);
+    
+    proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
+    offset += 8;
+    
+    proto_tree_add_item(tree, hf_kafka_batch_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
+
+    proto_tree_add_item(tree, hf_kafka_transaction_result, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
+
+    return offset;
+}
+
+
+static int
+dissect_kafka_end_txn_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                             kafka_api_version_t api_version _U_)
+{
+
+    offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
+
+    offset = dissect_kafka_error(tvb, pinfo, tree, offset);
+
+    return offset;
+}
+
 /* MAIN */
 
 static int
@@ -4690,6 +4717,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_ADD_PARTITIONS_TO_TXN:
                 /*offset =*/ dissect_kafka_add_partitions_to_txn_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_END_TXN:
+                /*offset =*/ dissect_kafka_end_txn_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
         }
     }
     else {
@@ -4811,6 +4841,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_ADD_PARTITIONS_TO_TXN:
                 /*offset =*/ dissect_kafka_add_partitions_to_txn_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_END_TXN:
+                /*offset =*/ dissect_kafka_end_txn_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
         }
 
@@ -4942,6 +4975,11 @@ proto_register_kafka(void)
         { &hf_kafka_transactional_id,
             { "Transactional ID", "kafka.transactional_id",
                FT_STRING, BASE_NONE, 0, 0,
+               NULL, HFILL }
+        },
+        { &hf_kafka_transaction_result,
+            { "Transaction Result", "kafka.transaction_result",
+               FT_INT8, BASE_DEC, VALS(kafka_transaction_results), 0,
                NULL, HFILL }
         },
         { &hf_kafka_string_len,
