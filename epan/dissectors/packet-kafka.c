@@ -47,6 +47,7 @@ static int hf_kafka_timeout = -1;
 static int hf_kafka_topic_name = -1;
 static int hf_kafka_transactional_id = -1;
 static int hf_kafka_transaction_result = -1;
+static int hf_kafka_transaction_timeout = -1;
 static int hf_kafka_partition_id = -1;
 static int hf_kafka_replica = -1;
 static int hf_kafka_replication_factor = -1;
@@ -4382,6 +4383,39 @@ dissect_kafka_delete_records_response(tvbuff_t *tvb, packet_info *pinfo, proto_t
     return offset;
 }
 
+/* INIT_PRODUCER_ID REQUEST/RESPONSE */
+
+static int
+dissect_kafka_init_producer_id_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                              kafka_api_version_t api_version _U_)
+{
+    offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, NULL, NULL);
+    
+    proto_tree_add_item(tree, hf_kafka_transaction_timeout, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+    
+    return offset;
+}
+
+
+static int
+dissect_kafka_init_producer_id_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                               kafka_api_version_t api_version _U_)
+{
+    
+    offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
+    
+    offset = dissect_kafka_error(tvb, pinfo, tree, offset);
+    
+    proto_tree_add_item(tree, hf_kafka_batch_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
+    offset += 8;
+
+    proto_tree_add_item(tree, hf_kafka_batch_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
+
+    return offset;
+}
+
 /* ADD_PARTITIONS_TO_TXN REQUEST/RESPONSE */
 
 static int
@@ -4746,6 +4780,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_DELETE_RECORDS:
                 /*offset =*/ dissect_kafka_delete_records_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_INIT_PRODUCER_ID:
+                /*offset =*/ dissect_kafka_init_producer_id_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
             case KAFKA_ADD_PARTITIONS_TO_TXN:
                 /*offset =*/ dissect_kafka_add_partitions_to_txn_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
@@ -4873,6 +4910,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_DELETE_RECORDS:
                 /*offset =*/ dissect_kafka_delete_records_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_INIT_PRODUCER_ID:
+                /*offset =*/ dissect_kafka_init_producer_id_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_ADD_PARTITIONS_TO_TXN:
                 /*offset =*/ dissect_kafka_add_partitions_to_txn_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
@@ -5018,6 +5058,11 @@ proto_register_kafka(void)
         { &hf_kafka_transaction_result,
             { "Transaction Result", "kafka.transaction_result",
                FT_INT8, BASE_DEC, VALS(kafka_transaction_results), 0,
+               NULL, HFILL }
+        },
+        { &hf_kafka_transaction_timeout,
+            { "Transaction Timeout", "kafka.transaction_timeout",
+               FT_INT32, BASE_DEC, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_string_len,
