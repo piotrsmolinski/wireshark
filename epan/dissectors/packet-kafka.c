@@ -156,6 +156,8 @@ static int ett_kafka_brokers = -1;
 static int ett_kafka_broker_end_point = -1;
 static int ett_kafka_topics = -1;
 static int ett_kafka_topic = -1;
+static int ett_kafka_partitions = -1;
+static int ett_kafka_partition = -1;
 static int ett_kafka_request_topics = -1;
 static int ett_kafka_request_topic = -1;
 static int ett_kafka_request_partition = -1;
@@ -4218,6 +4220,174 @@ dissect_kafka_delete_topics_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
     return offset;
 }
 
+/* DELETE_RECORDS REQUEST/RESPONSE */
+
+static int
+dissect_kafka_delete_records_request_topic_partition(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+                                           int offset, kafka_api_version_t api_version _U_)
+{
+
+    guint32 partition_id;
+    gint64 partition_offset;
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &subti, "Partition");
+
+    partition_id = tvb_get_ntohl(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_partition_id, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    partition_offset = tvb_get_ntohi64(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
+    offset += 8;
+
+    proto_item_set_end(subti, tvb, offset);
+
+    if (partition_offset == -1) {
+        proto_item_append_text(subti, " (ID=%u, Offset=HWM)", partition_id);
+    } else {
+        proto_item_append_text(subti, " (ID=%u, Offset=%" G_GINT64_MODIFIER "u)", partition_id, partition_offset);
+    }
+
+    return offset;
+}
+
+static int
+dissect_kafka_delete_records_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                          int offset, kafka_api_version_t api_version _U_)
+{
+
+    int topic_start, topic_len;
+    proto_item *subti, *subsubti;
+    proto_tree *subtree, *subsubtree;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
+
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    
+    subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_delete_records_request_topic_partition);
+    proto_item_set_end(subsubti, tvb, offset);
+
+    proto_item_set_end(subti, tvb, offset);
+    proto_item_append_text(subti, " (Topic=%s)",
+                           tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+
+    return offset;
+}
+
+static int
+dissect_kafka_delete_records_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                    kafka_api_version_t api_version)
+{
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    /* [topic] */
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_topics,
+                                     &subti, "Topics");
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_delete_records_request_topic);
+    proto_item_set_end(subti, tvb, offset);
+    
+    /* timeout */
+    proto_tree_add_item(tree, hf_kafka_timeout, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+    
+    return offset;
+}
+
+static int
+dissect_kafka_delete_records_response_topic_partition(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+                                                     int offset, kafka_api_version_t api_version _U_)
+{
+    
+    guint32 partition_id;
+    gint64 partition_offset; // low watermark
+    kafka_error_t partition_error_code;
+
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &subti, "Partition");
+    
+    partition_id = tvb_get_ntohl(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_partition_id, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+    
+    partition_offset = tvb_get_ntohi64(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
+    offset += 8;
+
+    partition_error_code = (kafka_error_t) tvb_get_ntohs(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_error, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
+
+    proto_item_set_end(subti, tvb, offset);
+    
+    if (partition_error_code == 0) {
+        proto_item_append_text(subti, " (ID=%u, Offset=%" G_GINT64_MODIFIER "u)", partition_id, partition_offset);
+    } else {
+        proto_item_append_text(subti, " (ID=%u, Error=%s)", partition_id, kafka_error_to_str(partition_error_code));
+    }
+    
+    return offset;
+}
+
+static int
+dissect_kafka_delete_records_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                           int offset, kafka_api_version_t api_version _U_)
+{
+    
+    int topic_start, topic_len;
+    proto_item *subti, *subsubti;
+    proto_tree *subtree, *subsubtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    
+    subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_delete_records_response_topic_partition);
+    proto_item_set_end(subsubti, tvb, offset);
+    
+    proto_item_set_end(subti, tvb, offset);
+    proto_item_append_text(subti, " (Topic=%s)",
+                           tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+    
+    return offset;
+}
+
+
+static int
+dissect_kafka_delete_records_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                     kafka_api_version_t api_version)
+{
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    proto_tree_add_item(tree, hf_kafka_throttle_time, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    
+    /* [topic_error_code] */
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_topics,
+                                     &subti, "Topics");
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_delete_records_response_topic);
+
+    proto_item_set_end(subti, tvb, offset);
+    
+    return offset;
+}
+
 /* MAIN */
 
 static int
@@ -4371,6 +4541,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_DELETE_TOPICS:
                 /*offset =*/ dissect_kafka_delete_topics_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_DELETE_RECORDS:
+                /*offset =*/ dissect_kafka_delete_records_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
         }
     }
     else {
@@ -4486,6 +4659,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_DELETE_TOPICS:
                 /*offset =*/ dissect_kafka_delete_topics_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_DELETE_RECORDS:
+                /*offset =*/ dissect_kafka_delete_records_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
         }
 
@@ -5114,6 +5290,8 @@ proto_register_kafka(void)
         &ett_kafka_broker_end_point,
         &ett_kafka_topics,
         &ett_kafka_topic,
+        &ett_kafka_partitions,
+        &ett_kafka_partition,
         &ett_kafka_request_topics,
         &ett_kafka_request_topic,
         &ett_kafka_request_partition,
