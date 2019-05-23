@@ -4525,6 +4525,38 @@ dissect_kafka_add_partitions_to_txn_response(tvbuff_t *tvb, packet_info *pinfo, 
     return offset;
 }
 
+/* ADD_OFFSETS_TO_TXN REQUEST/RESPONSE */
+
+static int
+dissect_kafka_add_offsets_to_txn_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                              kafka_api_version_t api_version _U_)
+{
+    offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, NULL, NULL);
+    
+    proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
+    offset += 8;
+    
+    proto_tree_add_item(tree, hf_kafka_batch_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
+    
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
+    
+    return offset;
+}
+
+
+static int
+dissect_kafka_add_offsets_to_txn_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                               kafka_api_version_t api_version _U_)
+{
+    
+    offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
+    
+    offset = dissect_kafka_error(tvb, pinfo, tree, offset);
+    
+    return offset;
+}
+
 /* END_TXN REQUEST/RESPONSE */
 
 static int
@@ -4717,6 +4749,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_ADD_PARTITIONS_TO_TXN:
                 /*offset =*/ dissect_kafka_add_partitions_to_txn_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_ADD_OFFSETS_TO_TXN:
+                /*offset =*/ dissect_kafka_add_offsets_to_txn_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
             case KAFKA_END_TXN:
                 /*offset =*/ dissect_kafka_end_txn_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
@@ -4841,6 +4876,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_ADD_PARTITIONS_TO_TXN:
                 /*offset =*/ dissect_kafka_add_partitions_to_txn_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_ADD_OFFSETS_TO_TXN:
+                /*offset =*/ dissect_kafka_add_offsets_to_txn_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_END_TXN:
                 /*offset =*/ dissect_kafka_end_txn_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
