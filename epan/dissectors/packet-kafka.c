@@ -149,6 +149,13 @@ static int hf_kafka_validate_only = -1;
 static int hf_kafka_coordinator_epoch = -1;
 static int hf_kafka_sasl_auth_bytes = -1;
 static int hf_kafka_session_lifetime_ms = -1;
+static int hf_kafka_acl_resource_type = -1;
+static int hf_kafka_acl_resource_name = -1;
+static int hf_kafka_acl_resource_pattern_type = -1;
+static int hf_kafka_acl_principal = -1;
+static int hf_kafka_acl_host = -1;
+static int hf_kafka_acl_operation = -1;
+static int hf_kafka_acl_permission_type = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
@@ -189,6 +196,10 @@ static int ett_kafka_record_headers = -1;
 static int ett_kafka_record_headers_header = -1;
 static int ett_kafka_aborted_transactions = -1;
 static int ett_kafka_aborted_transaction = -1;
+static int ett_kafka_resources = -1;
+static int ett_kafka_resource = -1;
+static int ett_kafka_acls = -1;
+static int ett_kafka_acl = -1;
 
 static expert_field ei_kafka_request_missing = EI_INIT;
 static expert_field ei_kafka_unknown_api_key = EI_INIT;
@@ -501,6 +512,51 @@ static const value_string kafka_isolation_levels[] = {
 static const value_string kafka_transaction_results[] = {
     { 0, "ABORT" },
     { 1, "COMMIT" },
+    { 0, NULL }
+};
+
+static const value_string acl_resource_types[] = {
+    { 0, "Unknown" },
+    { 1, "Any" },
+    { 2, "Topic" },
+    { 3, "Group" },
+    { 4, "Cluster" },
+    { 5, "TransactionalId" },
+    { 6, "DelegationToken" },
+    { 0, NULL }
+};
+
+static const value_string acl_resource_pattern_types[] = {
+    { 0, "Unknown" },
+    { 1, "Any" },
+    { 2, "Match" },
+    { 3, "Literal" },
+    { 4, "Prefixed" },
+    { 0, NULL }
+};
+
+static const value_string acl_operations[] = {
+    { 0, "Unknown" },
+    { 1, "Any" },
+    { 2, "All" },
+    { 3, "Read" },
+    { 4, "Write" },
+    { 5, "Create" },
+    { 6, "Delete" },
+    { 7, "Alter" },
+    { 8, "Describe" },
+    { 9, "Cluster Action" },
+    { 10, "Describe Configs" },
+    { 11, "Alter Configs" },
+    { 12, "Idempotent Write" },
+    { 0, NULL }
+};
+
+static const value_string acl_permission_types[] = {
+    { 0, "Unknown" },
+    { 1, "Any" },
+    { 2, "Deny" },
+    { 3, "Allow" },
     { 0, NULL }
 };
 
@@ -5159,6 +5215,114 @@ dissect_kafka_txn_offset_commit_response(tvbuff_t *tvb, packet_info *pinfo, prot
     return offset;
 }
 
+/* DESCRIBE_ACLS REQUEST/RESPONSE */
+
+static int
+dissect_kafka_describe_acls_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                        kafka_api_version_t api_version)
+{
+
+    proto_tree_add_item(tree, hf_kafka_acl_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
+
+    offset = dissect_kafka_string(tree, hf_kafka_acl_resource_name, tvb, pinfo, offset, NULL, NULL);
+    
+    if (api_version >= 1) {
+        proto_tree_add_item(tree, hf_kafka_acl_resource_pattern_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+    }
+
+    offset = dissect_kafka_string(tree, hf_kafka_acl_principal, tvb, pinfo, offset, NULL, NULL);
+
+    offset = dissect_kafka_string(tree, hf_kafka_acl_host, tvb, pinfo, offset, NULL, NULL);
+
+    proto_tree_add_item(tree, hf_kafka_acl_operation, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
+    
+    proto_tree_add_item(tree, hf_kafka_acl_permission_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
+    
+    return offset;
+}
+
+static int
+dissect_kafka_describe_acls_response_resource_acl(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+                                                   int offset, kafka_api_version_t api_version _U_)
+{
+    
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_acl, &subti, "ACL");
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_principal, tvb, pinfo, offset, NULL, NULL);
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_host, tvb, pinfo, offset, NULL, NULL);
+    
+    proto_tree_add_item(subtree, hf_kafka_acl_operation, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
+    
+    proto_tree_add_item(subtree, hf_kafka_acl_permission_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
+
+    return offset;
+}
+
+static int
+dissect_kafka_describe_acls_response_resource(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                               int offset, kafka_api_version_t api_version _U_)
+{
+    
+    proto_item *subti, *subsubti;
+    proto_tree *subtree, *subsubtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_resource, &subti, "Resource");
+    
+    proto_tree_add_item(subtree, hf_kafka_acl_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_resource_name, tvb, pinfo, offset, NULL, NULL);
+    
+    if (api_version >= 1) {
+        proto_tree_add_item(subtree, hf_kafka_acl_resource_pattern_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+    }
+
+    subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_acls, &subsubti, "ACLs");
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_describe_acls_response_resource_acl);
+    proto_item_set_end(subsubti, tvb, offset);
+    
+    proto_item_set_end(subti, tvb, offset);
+    
+    return offset;
+}
+
+
+static int
+dissect_kafka_describe_acls_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                         kafka_api_version_t api_version)
+{
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
+    
+    offset = dissect_kafka_error(tvb, pinfo, tree, offset);
+    
+    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_resources,
+                                     &subti, "Resources");
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_describe_acls_response_resource);
+    
+    proto_item_set_end(subti, tvb, offset);
+    
+    return offset;
+}
+
 /* SASL_AUTHENTICATE REQUEST/RESPONSE */
 
 static int
@@ -5367,6 +5531,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_TXN_OFFSET_COMMIT:
                 /*offset =*/ dissect_kafka_txn_offset_commit_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_DESCRIBE_ACLS:
+                /*offset =*/ dissect_kafka_describe_acls_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
             case KAFKA_SASL_AUTHENTICATE:
                 /*offset =*/ dissect_kafka_sasl_authenticate_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
@@ -5509,6 +5676,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_TXN_OFFSET_COMMIT:
                 /*offset =*/ dissect_kafka_txn_offset_commit_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_DESCRIBE_ACLS:
+                /*offset =*/ dissect_kafka_describe_acls_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_SASL_AUTHENTICATE:
                 /*offset =*/ dissect_kafka_sasl_authenticate_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
@@ -6155,6 +6325,41 @@ proto_register_kafka(void)
                 FT_INT64, BASE_DEC, 0, 0,
                 NULL, HFILL }
         },
+        { &hf_kafka_acl_resource_type,
+            { "Resource Type", "kafka.acl_resource_type",
+                FT_INT8, BASE_DEC, VALS(acl_resource_types), 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_acl_resource_name,
+            { "Resource Name", "kafka.acl_resource_name",
+                FT_STRING, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_acl_resource_pattern_type,
+            { "Resource Pattern Type", "kafka.acl_resource_pattern_type",
+                FT_INT8, BASE_DEC, VALS(acl_resource_pattern_types), 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_acl_principal,
+            { "Principal", "kafka.acl_principal",
+                FT_STRING, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_acl_host,
+            { "Host", "kafka.acl_host",
+                FT_STRING, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_acl_operation,
+            { "Operation", "kafka.acl_operation",
+                FT_INT8, BASE_DEC, VALS(acl_operations), 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_acl_permission_type,
+            { "Permission Type", "kafka.acl_permission_type",
+                FT_INT8, BASE_DEC, VALS(acl_permission_types), 0,
+                NULL, HFILL }
+        },
     };
 
     static int *ett[] = {
@@ -6197,6 +6402,10 @@ proto_register_kafka(void)
         &ett_kafka_record_headers_header,
         &ett_kafka_aborted_transactions,
         &ett_kafka_aborted_transaction,
+        &ett_kafka_resources,
+        &ett_kafka_resource,
+        &ett_kafka_acls,
+        &ett_kafka_acl,
     };
 
     static ei_register_info ei[] = {
