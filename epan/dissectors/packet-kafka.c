@@ -168,6 +168,14 @@ static int hf_kafka_segment_size = -1;
 static int hf_kafka_offset_lag = -1;
 static int hf_kafka_future = -1;
 static int hf_kafka_partition_count = -1;
+static int hf_kafka_token_max_life_time = -1;
+static int hf_kafka_token_principal_type = -1;
+static int hf_kafka_token_principal_name = -1;
+static int hf_kafka_token_issue_timestamp = -1;
+static int hf_kafka_token_expiry_timestamp = -1;
+static int hf_kafka_token_max_timestamp = -1;
+static int hf_kafka_token_id = -1;
+static int hf_kafka_token_hmac = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
@@ -224,6 +232,8 @@ static int ett_kafka_config_entries = -1;
 static int ett_kafka_config_entry = -1;
 static int ett_kafka_log_dirs = -1;
 static int ett_kafka_log_dir = -1;
+static int ett_kafka_renewers = -1;
+static int ett_kafka_renewer = -1;
 
 static expert_field ei_kafka_request_missing = EI_INIT;
 static expert_field ei_kafka_unknown_api_key = EI_INIT;
@@ -6347,6 +6357,71 @@ dissect_kafka_sasl_authenticate_response(tvbuff_t *tvb, packet_info *pinfo, prot
     return offset;
 }
 
+/* CREATE_DELEGATION_TOKEN REQUEST/RESPONSE */
+
+static int
+dissect_kafka_create_delegation_token_request_renewer(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+                                              int offset, kafka_api_version_t api_version _U_)
+{
+    
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_renewer, &subti, "Renewer");
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, NULL, NULL);
+
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, NULL, NULL);
+
+    proto_item_set_end(subti, tvb, offset);
+    
+    return offset;
+}
+
+static int
+dissect_kafka_create_delegation_token_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                        kafka_api_version_t api_version)
+{
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_renewers,
+                                     &subti, "Renewers");
+    
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_create_delegation_token_request_renewer);
+    
+    proto_item_set_end(subti, tvb, offset);
+    
+    proto_tree_add_item(tree, hf_kafka_token_max_life_time, tvb, offset, 8, ENC_BIG_ENDIAN);
+    offset += 8;
+    
+    return offset;
+}
+
+static int
+dissect_kafka_create_delegation_token_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                         kafka_api_version_t api_version _U_)
+{
+
+    offset = dissect_kafka_error(tvb, pinfo, tree, offset);
+
+    offset = dissect_kafka_string(tree, hf_kafka_token_principal_type, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_token_principal_name, tvb, pinfo, offset, NULL, NULL);
+    
+    offset = dissect_kafka_timestamp(tvb, pinfo, tree, hf_kafka_token_issue_timestamp, offset);
+    offset = dissect_kafka_timestamp(tvb, pinfo, tree, hf_kafka_token_expiry_timestamp, offset);
+    offset = dissect_kafka_timestamp(tvb, pinfo, tree, hf_kafka_token_max_timestamp, offset);
+
+    offset = dissect_kafka_string(tree, hf_kafka_token_id, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_bytes(tree, hf_kafka_token_hmac, tvb, pinfo, offset, NULL, NULL);
+
+    offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
+    
+    return offset;
+}
+
 /* MAIN */
 
 static int
@@ -6551,6 +6626,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_SASL_AUTHENTICATE:
                 /*offset =*/ dissect_kafka_sasl_authenticate_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_CREATE_DELEGATION_TOKEN:
+                /*offset =*/ dissect_kafka_create_delegation_token_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
         }
     }
     else {
@@ -6717,6 +6795,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_SASL_AUTHENTICATE:
                 /*offset =*/ dissect_kafka_sasl_authenticate_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_CREATE_DELEGATION_TOKEN:
+                /*offset =*/ dissect_kafka_create_delegation_token_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
         }
 
@@ -7455,6 +7536,46 @@ proto_register_kafka(void)
                 FT_UINT32, BASE_DEC, 0, 0,
                 NULL, HFILL }
         },
+        { &hf_kafka_token_max_life_time,
+            { "Max Life Time", "kafka.token_max_life_time",
+                FT_INT64, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_token_principal_type,
+            { "Principal Type", "kafka.principal_type",
+                FT_STRING, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_token_principal_name,
+            { "Principal Name", "kafka.principal_name",
+                FT_STRING, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_token_issue_timestamp,
+            { "Issue Timestamp", "kafka.token_issue_timestamp",
+                FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_token_expiry_timestamp,
+            { "Expiry Timestamp", "kafka.token_expiry_timestamp",
+                FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_token_max_timestamp,
+            { "Max Timestamp", "kafka.token_max_timestamp",
+                FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_token_id,
+            { "ID", "kafka.token_id",
+                FT_STRING, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_token_hmac,
+            { "HMAC", "kafka.token_hmac",
+                FT_BYTES, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
     };
 
     static int *ett[] = {
@@ -7512,7 +7633,9 @@ proto_register_kafka(void)
         &ett_kafka_config_entries,
         &ett_kafka_config_entry,
         &ett_kafka_log_dirs,
-        &ett_kafka_log_dir
+        &ett_kafka_log_dir,
+        &ett_kafka_renewers,
+        &ett_kafka_renewer,
     };
 
     static ei_register_info ei[] = {
