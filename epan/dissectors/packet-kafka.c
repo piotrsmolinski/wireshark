@@ -169,6 +169,7 @@ static int hf_kafka_offset_lag = -1;
 static int hf_kafka_future = -1;
 static int hf_kafka_partition_count = -1;
 static int hf_kafka_token_max_life_time = -1;
+static int hf_kafka_token_renew_time = -1;
 static int hf_kafka_token_principal_type = -1;
 static int hf_kafka_token_principal_name = -1;
 static int hf_kafka_token_issue_timestamp = -1;
@@ -6422,6 +6423,33 @@ dissect_kafka_create_delegation_token_response(tvbuff_t *tvb, packet_info *pinfo
     return offset;
 }
 
+/* RENEW_DELEGATION_TOKEN REQUEST/RESPONSE */
+
+static int
+dissect_kafka_renew_delegation_token_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                              kafka_api_version_t api_version _U_)
+{
+
+    offset = dissect_kafka_bytes(tree, hf_kafka_token_hmac, tvb, pinfo, offset, NULL, NULL);
+
+    proto_tree_add_item(tree, hf_kafka_token_renew_time, tvb, offset, 8, ENC_BIG_ENDIAN);
+    offset += 8;
+
+    return offset;
+}
+
+static int
+dissect_kafka_renew_delegation_token_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                               kafka_api_version_t api_version _U_)
+{
+    
+    offset = dissect_kafka_error(tvb, pinfo, tree, offset);
+    offset = dissect_kafka_timestamp(tvb, pinfo, tree, hf_kafka_token_expiry_timestamp, offset);
+    offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
+    
+    return offset;
+}
+
 /* MAIN */
 
 static int
@@ -6629,6 +6657,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_CREATE_DELEGATION_TOKEN:
                 /*offset =*/ dissect_kafka_create_delegation_token_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_RENEW_DELEGATION_TOKEN:
+                /*offset =*/ dissect_kafka_renew_delegation_token_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
         }
     }
     else {
@@ -6798,6 +6829,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_CREATE_DELEGATION_TOKEN:
                 /*offset =*/ dissect_kafka_create_delegation_token_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_RENEW_DELEGATION_TOKEN:
+                /*offset =*/ dissect_kafka_renew_delegation_token_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
         }
 
@@ -7538,6 +7572,11 @@ proto_register_kafka(void)
         },
         { &hf_kafka_token_max_life_time,
             { "Max Life Time", "kafka.token_max_life_time",
+                FT_INT64, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_token_renew_time,
+            { "Renew Time", "kafka.renew_time",
                 FT_INT64, BASE_DEC, 0, 0,
                 NULL, HFILL }
         },
