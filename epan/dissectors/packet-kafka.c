@@ -236,6 +236,10 @@ static int ett_kafka_log_dirs = -1;
 static int ett_kafka_log_dir = -1;
 static int ett_kafka_renewers = -1;
 static int ett_kafka_renewer = -1;
+static int ett_kafka_owners = -1;
+static int ett_kafka_owner = -1;
+static int ett_kafka_tokens = -1;
+static int ett_kafka_token = -1;
 
 static expert_field ei_kafka_request_missing = EI_INIT;
 static expert_field ei_kafka_unknown_api_key = EI_INIT;
@@ -6478,6 +6482,124 @@ dissect_kafka_expire_delegation_token_response(tvbuff_t *tvb, packet_info *pinfo
     return offset;
 }
 
+/* DESCRIBE_DELEGATION_TOKEN REQUEST/RESPONSE */
+
+static int
+dissect_kafka_describe_delegation_token_request_owner(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+                                                      int offset, kafka_api_version_t api_version _U_)
+{
+    
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_owner, &subti, "Owner");
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, NULL, NULL);
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, NULL, NULL);
+    
+    proto_item_set_end(subti, tvb, offset);
+    
+    return offset;
+}
+
+static int
+dissect_kafka_describe_delegation_token_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                              kafka_api_version_t api_version _U_)
+{
+    
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_owners,
+                                     &subti, "Owners");
+    
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_describe_delegation_token_request_owner);
+    
+    proto_item_set_end(subti, tvb, offset);
+
+    return offset;
+}
+
+static int
+dissect_kafka_describe_delegation_token_response_renewer(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+                                                     int offset, kafka_api_version_t api_version _U_)
+{
+    
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_renewer, &subti, "Renewer");
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, NULL, NULL);
+    
+    proto_item_set_end(subti, tvb, offset);
+    
+    return offset;
+}
+
+static int
+dissect_kafka_describe_delegation_token_response_token(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                                      int offset, kafka_api_version_t api_version)
+{
+    
+    proto_item *subti, *subsubti;
+    proto_tree *subtree, *subsubtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_token, &subti, "Token");
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, NULL, NULL);
+    
+    offset = dissect_kafka_timestamp(tvb, pinfo, subtree, hf_kafka_token_issue_timestamp, offset);
+    offset = dissect_kafka_timestamp(tvb, pinfo, subtree, hf_kafka_token_expiry_timestamp, offset);
+    offset = dissect_kafka_timestamp(tvb, pinfo, subtree, hf_kafka_token_max_timestamp, offset);
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_token_id, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_bytes(subtree, hf_kafka_token_hmac, tvb, pinfo, offset, NULL, NULL);
+    
+    
+    subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
+                                     ett_kafka_renewers,
+                                     &subsubti, "Renewers");
+    
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_describe_delegation_token_response_renewer);
+    
+    proto_item_set_end(subsubti, tvb, offset);
+
+    proto_item_set_end(subti, tvb, offset);
+    
+    return offset;
+}
+
+static int
+dissect_kafka_describe_delegation_token_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                               kafka_api_version_t api_version _U_)
+{
+    
+    proto_item *subti;
+    proto_tree *subtree;
+
+    offset = dissect_kafka_error(tvb, pinfo, tree, offset);
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_tokens,
+                                     &subti, "Tokens");
+    
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_describe_delegation_token_response_token);
+    
+    proto_item_set_end(subti, tvb, offset);
+
+    offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
+    
+    return offset;
+}
+
 /* MAIN */
 
 static int
@@ -6691,6 +6813,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_EXPIRE_DELEGATION_TOKEN:
                 /*offset =*/ dissect_kafka_expire_delegation_token_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_DESCRIBE_DELEGATION_TOKEN:
+                /*offset =*/ dissect_kafka_describe_delegation_token_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
         }
     }
     else {
@@ -6866,6 +6991,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_EXPIRE_DELEGATION_TOKEN:
                 /*offset =*/ dissect_kafka_expire_delegation_token_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_DESCRIBE_DELEGATION_TOKEN:
+                /*offset =*/ dissect_kafka_describe_delegation_token_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
         }
 
@@ -7714,6 +7842,10 @@ proto_register_kafka(void)
         &ett_kafka_log_dir,
         &ett_kafka_renewers,
         &ett_kafka_renewer,
+        &ett_kafka_owners,
+        &ett_kafka_owner,
+        &ett_kafka_tokens,
+        &ett_kafka_token,
     };
 
     static ei_register_info ei[] = {
