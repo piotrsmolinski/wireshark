@@ -32,6 +32,8 @@ void proto_reg_handoff_kafka(void);
 
 static int proto_kafka = -1;
 static int hf_kafka_len = -1;
+static int hf_kafka_api_key = -1;
+static int hf_kafka_api_version = -1;
 static int hf_kafka_request_api_key = -1;
 static int hf_kafka_response_api_key = -1;
 static int hf_kafka_request_api_version = -1;
@@ -6880,11 +6882,18 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             PROTO_ITEM_SET_GENERATED(ti);
         }
 
+
         ti = proto_tree_add_item(kafka_tree, hf_kafka_request_api_key, tvb, offset, 2, ENC_BIG_ENDIAN);
+        PROTO_ITEM_SET_HIDDEN(ti);
+        
+        ti = proto_tree_add_item(kafka_tree, hf_kafka_api_key, tvb, offset, 2, ENC_BIG_ENDIAN);
         offset += 2;
         kafka_check_supported_api_key(pinfo, ti, matcher);
 
         ti = proto_tree_add_item(kafka_tree, hf_kafka_request_api_version, tvb, offset, 2, ENC_BIG_ENDIAN);
+        PROTO_ITEM_SET_HIDDEN(ti);
+
+        ti = proto_tree_add_item(kafka_tree, hf_kafka_api_version, tvb, offset, 2, ENC_BIG_ENDIAN);
         offset += 2;
         kafka_check_supported_api_version(pinfo, ti, matcher);
 
@@ -7075,11 +7084,19 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
         ti = proto_tree_add_int(kafka_tree, hf_kafka_response_api_key, tvb,
                 0, 0, matcher->api_key);
         PROTO_ITEM_SET_GENERATED(ti);
+        PROTO_ITEM_SET_HIDDEN(ti);
+        ti = proto_tree_add_int(kafka_tree, hf_kafka_api_key, tvb,
+                                0, 0, matcher->api_key);
+        PROTO_ITEM_SET_GENERATED(ti);
         kafka_check_supported_api_key(pinfo, ti, matcher);
 
         /* Also show api version from request */
         ti = proto_tree_add_int(kafka_tree, hf_kafka_response_api_version, tvb,
                 0, 0, matcher->api_version);
+        PROTO_ITEM_SET_GENERATED(ti);
+        PROTO_ITEM_SET_HIDDEN(ti);
+        ti = proto_tree_add_int(kafka_tree, hf_kafka_response_api_version, tvb,
+                                0, 0, matcher->api_version);
         PROTO_ITEM_SET_GENERATED(ti);
         kafka_check_supported_api_version(pinfo, ti, matcher);
 
@@ -7308,6 +7325,18 @@ proto_register_kafka(void)
                FT_STRING, BASE_NONE, 0, 0,
                NULL, HFILL }
         },
+        { &hf_kafka_api_key,
+            { "API Key", "kafka.api_key",
+                FT_INT16, BASE_DEC, VALS(kafka_api_names), 0,
+                "Request API Key.", HFILL }
+        },
+        { &hf_kafka_api_version,
+            { "API Version", "kafka.api_version",
+                FT_INT16, BASE_DEC, 0, 0,
+                "Request API Version.", HFILL }
+        },
+        // these should be deprecated
+        // --- begin ---
         { &hf_kafka_request_api_key,
             { "API Key", "kafka.request_key",
                FT_INT16, BASE_DEC, VALS(kafka_api_names), 0,
@@ -7328,6 +7357,7 @@ proto_register_kafka(void)
                FT_INT16, BASE_DEC, 0, 0,
               "Response API Version.", HFILL }
         },
+        // --- end ---
         { &hf_kafka_correlation_id,
             { "Correlation ID", "kafka.correlation_id",
                FT_INT32, BASE_DEC, 0, 0,
