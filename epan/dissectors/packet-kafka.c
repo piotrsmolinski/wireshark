@@ -43,7 +43,6 @@ static int hf_kafka_client_id = -1;
 static int hf_kafka_client_host = -1;
 static int hf_kafka_string_len = -1;
 static int hf_kafka_bytes_len = -1;
-static int hf_kafka_array_count = -1;
 static int hf_kafka_required_acks = -1;
 static int hf_kafka_timeout = -1;
 static int hf_kafka_topic_name = -1;
@@ -847,7 +846,6 @@ dissect_kafka_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int off
     gint32 count, i;
 
     count = (gint32) tvb_get_ntohl(tvb, offset);
-    proto_tree_add_item(tree, hf_kafka_array_count, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
     for (i=0; i<count; i++) {
@@ -7397,11 +7395,6 @@ proto_register_kafka(void)
             { "Bytes Length", "kafka.bytes_len",
                FT_INT32, BASE_DEC, 0, 0,
               "Generic length for kafka-encoded bytes.", HFILL }
-        },
-        { &hf_kafka_array_count,
-            { "Array Count", "kafka.array_count",
-               FT_INT32, BASE_DEC, 0, 0,
-               NULL, HFILL }
         },
         { &hf_kafka_required_acks,
             { "Required Acks", "kafka.required_acks",
