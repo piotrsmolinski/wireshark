@@ -195,11 +195,6 @@ static int ett_kafka_topics = -1;
 static int ett_kafka_topic = -1;
 static int ett_kafka_partitions = -1;
 static int ett_kafka_partition = -1;
-static int ett_kafka_request_topics = -1;
-static int ett_kafka_request_topic = -1;
-static int ett_kafka_request_partition = -1;
-static int ett_kafka_response_topic = -1;
-static int ett_kafka_response_partition = -1;
 static int ett_kafka_api_version = -1;
 static int ett_kafka_group_protocols = -1;
 static int ett_kafka_group_protocol = -1;
@@ -1630,7 +1625,7 @@ dissect_kafka_offset_fetch_request_topic(tvbuff_t *tvb, packet_info *pinfo, prot
     guint32     count;
     int topic_start, topic_len;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_topic, &ti, "Topic");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
 
@@ -1654,7 +1649,7 @@ dissect_kafka_offset_fetch_request_topics(tvbuff_t *tvb, packet_info *pinfo, pro
     int         offset = start_offset;
     guint32     count;
     
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_topics, &ti, "Offset Fetch Request Topics");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topics, &ti, "Topics");
     
     count = (gint32)tvb_get_ntohl(tvb, offset);
 
@@ -1728,7 +1723,7 @@ dissect_kafka_offset_fetch_response_partition(tvbuff_t *tvb, packet_info *pinfo,
     kafka_packet_values_t packet_values;
     memset(&packet_values, 0, sizeof(packet_values));
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_partition, &ti, "Offset Fetch Response Partition");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &ti, "Partition");
 
     offset = dissect_kafka_partition_id_get_value(tvb, pinfo, subtree, offset, &packet_values);
     offset = dissect_kafka_offset(tvb, pinfo, subtree, offset, api_version);
@@ -1757,7 +1752,7 @@ dissect_kafka_offset_fetch_response_topic(tvbuff_t *tvb, packet_info *pinfo, pro
     proto_tree *subtree;
     int         offset = start_offset;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_response_topic, &ti, "Offset Fetch Response Topic");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
@@ -1875,7 +1870,7 @@ dissect_kafka_metadata_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     int         offset = start_offset;
     int         sub_start_offset;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_response_partition, &ti, "Partition");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &ti, "Partition");
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
@@ -1920,7 +1915,7 @@ dissect_kafka_metadata_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     int         offset = start_offset;
     int         name_start, name_length;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_response_topic, &ti, "Topic");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
@@ -2009,8 +2004,8 @@ dissect_kafka_leader_and_isr_request_partition_state(tvbuff_t *tvb, packet_info 
     kafka_partition_t partition;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_request_partition,
-                                     &subti, "Partition State");
+                                     ett_kafka_partition,
+                                     &subti, "Partition");
 
     if (api_version < 2) {
         /* topic */
@@ -2079,8 +2074,8 @@ dissect_kafka_leader_and_isr_request_topic_state(tvbuff_t *tvb, packet_info *pin
     int topic_start, topic_len;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_request_topic,
-                                     &subti, "Topic State");
+                                     ett_kafka_topic,
+                                     &subti, "Topic");
     
     /* topic */
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
@@ -2091,7 +2086,7 @@ dissect_kafka_leader_and_isr_request_topic_state(tvbuff_t *tvb, packet_info *pin
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
                                  &dissect_kafka_leader_and_isr_request_partition_state);
 
-    proto_item_append_text(subti, " (Topic=%s)",
+    proto_item_append_text(subti, " (Name=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
                                               topic_start, topic_len, ENC_UTF_8|ENC_NA));
 
@@ -2185,7 +2180,7 @@ dissect_kafka_leader_and_isr_response_partition(tvbuff_t *tvb, packet_info *pinf
     kafka_error_t error;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_response_partition,
+                                     ett_kafka_partition,
                                      &subti, "Partition");
 
     /* topic */
@@ -2235,7 +2230,7 @@ dissect_kafka_stop_replica_request_partition(tvbuff_t *tvb, packet_info *pinfo _
     kafka_partition_t partition;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_request_partition,
+                                     ett_kafka_partition,
                                      &subti, "Partition");
 
     /* topic */
@@ -2294,7 +2289,7 @@ dissect_kafka_stop_replica_response_partition(tvbuff_t *tvb, packet_info *pinfo,
     kafka_partition_t partition;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_response_partition,
+                                     ett_kafka_partition,
                                      &subti, "Partition");
 
     /* topic */
@@ -2343,7 +2338,7 @@ dissect_kafka_fetch_request_partition(tvbuff_t *tvb, packet_info *pinfo, proto_t
     kafka_packet_values_t packet_values;
     memset(&packet_values, 0, sizeof(packet_values));
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, 16, ett_kafka_request_partition, &ti, "Fetch Request Partition");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, 16, ett_kafka_partition, &ti, "Partition");
 
     offset = dissect_kafka_partition_id_get_value(tvb, pinfo, subtree, offset, &packet_values);
     
@@ -2378,7 +2373,7 @@ dissect_kafka_fetch_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
     guint32     count;
     int         name_start, name_length;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_topic, &ti, "Fetch Request Topic");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &name_start, &name_length);
     count = tvb_get_ntohl(tvb, offset);
@@ -2513,7 +2508,7 @@ dissect_kafka_fetch_response_partition(tvbuff_t *tvb, packet_info *pinfo, proto_
     kafka_packet_values_t packet_values;
     memset(&packet_values, 0, sizeof(packet_values));
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_response_partition, &ti, "Fetch Response Partition");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &ti, "Partition");
 
     offset = dissect_kafka_partition_id_get_value(tvb, pinfo, subtree, offset, &packet_values);
 
@@ -2554,7 +2549,7 @@ dissect_kafka_fetch_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree
     int         offset = start_offset;
     guint32     count;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_response_topic, &ti, "Fetch Response Topic");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
     count = tvb_get_ntohl(tvb, offset);
@@ -2598,7 +2593,7 @@ dissect_kafka_produce_request_partition(tvbuff_t *tvb, packet_info *pinfo, proto
     kafka_packet_values_t packet_values;
     memset(&packet_values, 0, sizeof(packet_values));
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, 14, ett_kafka_request_partition, &ti, "Produce Request Partition");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, 14, ett_kafka_partition, &ti, "Partition");
 
     offset = dissect_kafka_partition_id_get_value(tvb, pinfo, subtree, offset, &packet_values);
 
@@ -2617,7 +2612,7 @@ dissect_kafka_produce_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     proto_tree *subtree;
     int         offset = start_offset;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_topic, &ti, "Produce Request Topic");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
@@ -2657,7 +2652,7 @@ dissect_kafka_produce_response_partition(tvbuff_t *tvb, packet_info *pinfo, prot
     kafka_packet_values_t packet_values;
     memset(&packet_values, 0, sizeof(packet_values));
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, 14, ett_kafka_response_partition, &ti, "Produce Response Partition");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, 14, ett_kafka_partition, &ti, "Partition");
 
     offset = dissect_kafka_partition_id_get_value(tvb, pinfo, subtree, offset, &packet_values);
 
@@ -2688,7 +2683,7 @@ dissect_kafka_produce_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tr
     proto_tree *subtree;
     int         offset = start_offset;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_response_topic, &ti, "Produce Response Topic");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
@@ -2722,7 +2717,7 @@ dissect_kafka_offsets_request_partition(tvbuff_t *tvb, packet_info *pinfo, proto
     proto_tree *subtree;
     int         offset = start_offset;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_partition, &ti, "Offset Request Partition");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &ti, "Partition");
 
     offset = dissect_kafka_partition_id(tvb, pinfo, subtree, offset, api_version);
 
@@ -2751,7 +2746,7 @@ dissect_kafka_offsets_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     proto_tree *subtree;
     int         offset = start_offset;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_topic, &ti, "Offset Request Topic");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
@@ -2787,7 +2782,7 @@ dissect_kafka_offsets_response_partition(tvbuff_t *tvb, packet_info *pinfo, prot
     proto_tree *subtree;
     int         offset = start_offset;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_response_partition, &ti, "Offset Response Partition");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &ti, "Partition");
 
     offset = dissect_kafka_partition_id(tvb, pinfo, subtree, offset, api_version);
 
@@ -2820,7 +2815,7 @@ dissect_kafka_offsets_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tr
     proto_tree *subtree;
     int         offset = start_offset;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_response_topic, &ti, "Offset Response Topic");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
@@ -2976,8 +2971,8 @@ dissect_kafka_update_metadata_request_partition_state(tvbuff_t *tvb, packet_info
     kafka_partition_t partition;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_request_partition,
-                                     &subti, "Partition State");
+                                     ett_kafka_partition,
+                                     &subti, "Partition");
 
     if (api_version < 5) {
         /* topic */
@@ -3045,8 +3040,8 @@ dissect_kafka_update_metadata_request_topic_state(tvbuff_t *tvb, packet_info *pi
     int topic_start, topic_len;
     
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_request_topic,
-                                     &subti, "Topic State");
+                                     ett_kafka_topic,
+                                     &subti, "Topic");
     /* topic */
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
                                   &topic_start, &topic_len);
@@ -3239,7 +3234,7 @@ dissect_kafka_controlled_shutdown_response_partition_remaining(tvbuff_t *tvb, pa
     int topic_start, topic_len;
     kafka_partition_t partition;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_response_topic, &subti,
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &subti,
                                      "Partition Remaining");
 
     /* topic */
@@ -3285,7 +3280,7 @@ dissect_kafka_offset_commit_request_partition(tvbuff_t *tvb, packet_info *pinfo,
     kafka_partition_t partition_id;
     kafka_offset_t partition_offset;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_partition, &subti,
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &subti,
                                      "Partition");
 
     /* partition */
@@ -3326,7 +3321,7 @@ dissect_kafka_offset_commit_request_topic(tvbuff_t *tvb, packet_info *pinfo, pro
     proto_tree *subtree;
     int topic_start, topic_len;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_topic, &subti, "Topic");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
     /* topic */
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
@@ -3390,8 +3385,8 @@ dissect_kafka_offset_commit_response_partition_response(tvbuff_t *tvb, packet_in
     kafka_partition_t partition;
     kafka_error_t error;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_response_partition, &subti,
-                                     "Partition Response");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &subti,
+                                     "Partition");
 
     /* partition */
     partition = (gint32) tvb_get_ntohl(tvb, offset);
@@ -3416,7 +3411,7 @@ dissect_kafka_offset_commit_response_response(tvbuff_t *tvb, packet_info *pinfo,
     proto_tree *subtree;
     int topic_start, topic_len;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_response_topic, &subti, "Response");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
     /* topic */
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
@@ -3427,7 +3422,7 @@ dissect_kafka_offset_commit_response_response(tvbuff_t *tvb, packet_info *pinfo,
                                  &dissect_kafka_offset_commit_response_partition_response);
 
     proto_item_set_end(subti, tvb, offset);
-    proto_item_append_text(subti, " (Topic=%s)",
+    proto_item_append_text(subti, " (Name=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
                                               topic_start, topic_len, ENC_UTF_8|ENC_NA));
 
@@ -8050,11 +8045,6 @@ proto_register_kafka(void)
         &ett_kafka_topic,
         &ett_kafka_partitions,
         &ett_kafka_partition,
-        &ett_kafka_request_topics,
-        &ett_kafka_request_topic,
-        &ett_kafka_request_partition,
-        &ett_kafka_response_topic,
-        &ett_kafka_response_partition,
         &ett_kafka_api_version,
         &ett_kafka_group_protocols,
         &ett_kafka_group_protocol,
