@@ -60,6 +60,7 @@ static int hf_kafka_last_stable_offset = -1;
 static int hf_kafka_log_start_offset = -1;
 static int hf_kafka_first_offset = -1;
 static int hf_kafka_producer_id = -1;
+static int hf_kafka_producer_epoch = -1;
 static int hf_kafka_message_set_size = -1;
 static int hf_kafka_message_size = -1;
 static int hf_kafka_message_crc = -1;
@@ -76,8 +77,6 @@ static int hf_kafka_batch_control_batch = -1;
 static int hf_kafka_batch_last_offset_delta = -1;
 static int hf_kafka_batch_first_timestamp = -1;
 static int hf_kafka_batch_last_timestamp = -1;
-static int hf_kafka_batch_producer_id = -1;
-static int hf_kafka_batch_producer_epoch = -1;
 static int hf_kafka_batch_base_sequence = -1;
 static int hf_kafka_batch_size = -1;
 static int hf_kafka_message_key = -1;
@@ -1470,9 +1469,9 @@ dissect_kafka_message_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
     offset = dissect_kafka_timestamp(tvb, pinfo, subtree, hf_kafka_batch_first_timestamp, offset);
     offset = dissect_kafka_timestamp(tvb, pinfo, subtree, hf_kafka_batch_last_timestamp, offset);
 
-    proto_tree_add_item(subtree, hf_kafka_batch_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
+    proto_tree_add_item(subtree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
-    proto_tree_add_item(subtree, hf_kafka_batch_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(subtree, hf_kafka_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
     proto_tree_add_item(subtree, hf_kafka_batch_base_sequence, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
@@ -4528,10 +4527,10 @@ dissect_kafka_init_producer_id_response(tvbuff_t *tvb, packet_info *pinfo, proto
     
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
     
-    proto_tree_add_item(tree, hf_kafka_batch_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
 
-    proto_tree_add_item(tree, hf_kafka_batch_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tree, hf_kafka_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
     return offset;
@@ -4749,7 +4748,7 @@ dissect_kafka_add_partitions_to_txn_request(tvbuff_t *tvb, packet_info *pinfo, p
     proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
 
-    proto_tree_add_item(tree, hf_kafka_batch_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tree, hf_kafka_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
     /* [topic] */
@@ -4853,7 +4852,7 @@ dissect_kafka_add_offsets_to_txn_request(tvbuff_t *tvb, packet_info *pinfo, prot
     proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
     
-    proto_tree_add_item(tree, hf_kafka_batch_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tree, hf_kafka_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
     
     offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
@@ -4885,7 +4884,7 @@ dissect_kafka_end_txn_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
     proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
     
-    proto_tree_add_item(tree, hf_kafka_batch_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tree, hf_kafka_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
     proto_tree_add_item(tree, hf_kafka_transaction_result, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -4962,7 +4961,7 @@ dissect_kafka_write_txn_markers_request_marker(tvbuff_t *tvb, packet_info *pinfo
     proto_tree_add_item(subtree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
 
-    proto_tree_add_item(subtree, hf_kafka_batch_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(subtree, hf_kafka_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
     proto_tree_add_item(subtree, hf_kafka_transaction_result, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -5181,7 +5180,7 @@ dissect_kafka_txn_offset_commit_request(tvbuff_t *tvb, packet_info *pinfo, proto
     proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
 
-    proto_tree_add_item(tree, hf_kafka_batch_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tree, hf_kafka_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
@@ -7416,6 +7415,11 @@ proto_register_kafka(void)
                FT_INT64, BASE_DEC, 0, 0,
                NULL, HFILL }
         },
+        { &hf_kafka_producer_epoch,
+            { "Producer Epoch", "kafka.producer_epoch",
+                FT_UINT16, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
         { &hf_kafka_partition_id,
             { "Partition ID", "kafka.partition_id",
                FT_INT32, BASE_DEC, 0, 0,
@@ -7524,16 +7528,6 @@ proto_register_kafka(void)
         { &hf_kafka_batch_last_timestamp,
             { "Last Timestamp", "kafka.batch_last_timestamp",
                 FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0,
-                NULL, HFILL }
-        },
-        { &hf_kafka_batch_producer_id,
-            { "Producer ID", "kafka.batch_producer_id",
-                FT_UINT64, BASE_DEC, 0, 0,
-                NULL, HFILL }
-        },
-        { &hf_kafka_batch_producer_epoch,
-            { "Producer Epoch", "kafka.batch_producer_epoch",
-                FT_UINT16, BASE_DEC, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_batch_base_sequence,
