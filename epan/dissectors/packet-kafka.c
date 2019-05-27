@@ -3506,11 +3506,16 @@ dissect_kafka_find_coordinator_response_coordinator(tvbuff_t *tvb, packet_info *
     offset += 4;
 
     proto_item_set_end(subti, tvb, offset);
-    proto_item_append_text(subti, " (node %u: %s:%u)",
-                           node_id,
-                           tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              host_start, host_len, ENC_UTF_8|ENC_NA),
-                           port);
+    
+    if (node_id >= 0) {
+        proto_item_append_text(subti, " (node %d: %s:%d)",
+                               node_id,
+                               tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                                  host_start, host_len, ENC_UTF_8|ENC_NA),
+                               port);
+    } else {
+        proto_item_append_text(subti, " (none)");
+    }
 
     return offset;
 }
