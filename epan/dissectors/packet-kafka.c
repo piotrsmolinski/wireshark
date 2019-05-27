@@ -207,6 +207,7 @@ static int ett_kafka_group_members = -1;
 static int ett_kafka_group_member = -1;
 static int ett_kafka_group_assignments = -1;
 static int ett_kafka_group_assignment = -1;
+static int ett_kafka_groups = -1;
 static int ett_kafka_group = -1;
 static int ett_kafka_sasl_enabled_mechanisms = -1;
 static int ett_kafka_replica_assignment = -1;
@@ -6601,6 +6602,78 @@ dissect_kafka_describe_delegation_token_response(tvbuff_t *tvb, packet_info *pin
     return offset;
 }
 
+/* DELETE_GROUPS REQUEST/RESPONSE */
+
+static int
+dissect_kafka_delete_groups_request_group(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+                                                      int offset, kafka_api_version_t api_version _U_)
+{
+    
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
+
+    return offset;
+}
+
+static int
+dissect_kafka_delete_groups_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                kafka_api_version_t api_version _U_)
+{
+    
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_groups,
+                                     &subti, "Groups");
+    
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_delete_groups_request_group);
+    
+    proto_item_set_end(subti, tvb, offset);
+    
+    return offset;
+}
+
+static int
+dissect_kafka_delete_groups_response_group(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+                                                         int offset, kafka_api_version_t api_version _U_)
+{
+    
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group, &subti, "Group");
+    
+    offset = dissect_kafka_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
+
+    proto_item_set_end(subti, tvb, offset);
+    
+    return offset;
+}
+
+static int
+dissect_kafka_delete_groups_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                 kafka_api_version_t api_version _U_)
+{
+    
+    proto_item *subti;
+    proto_tree *subtree;
+    
+    offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_groups,
+                                     &subti, "Groups");
+    
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                 &dissect_kafka_delete_groups_response_group);
+    
+    proto_item_set_end(subti, tvb, offset);
+    
+    return offset;
+}
+
 /* MAIN */
 
 static int
@@ -6817,6 +6890,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_DESCRIBE_DELEGATION_TOKEN:
                 /*offset =*/ dissect_kafka_describe_delegation_token_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_DELETE_GROUPS:
+                /*offset =*/ dissect_kafka_delete_groups_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
         }
     }
     else {
@@ -6995,6 +7071,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_DESCRIBE_DELEGATION_TOKEN:
                 /*offset =*/ dissect_kafka_describe_delegation_token_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_DELETE_GROUPS:
+                /*offset =*/ dissect_kafka_delete_groups_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
         }
 
@@ -7814,6 +7893,7 @@ proto_register_kafka(void)
         &ett_kafka_group_member,
         &ett_kafka_group_assignments,
         &ett_kafka_group_assignment,
+        &ett_kafka_groups,
         &ett_kafka_group,
         &ett_kafka_sasl_enabled_mechanisms,
         &ett_kafka_replica_assignment,
