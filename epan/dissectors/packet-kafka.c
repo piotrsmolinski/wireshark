@@ -1609,8 +1609,20 @@ static int
 dissect_kafka_offset_time(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset,
                           kafka_api_version_t api_version _U_)
 {
-    proto_tree_add_item(tree, hf_kafka_offset_time, tvb, offset, 8, ENC_BIG_ENDIAN);
+    
+    proto_item *ti;
+    gint64 time;
+    
+    time = tvb_get_ntoh64(tvb, offset);
+    
+    ti = proto_tree_add_item(tree, hf_kafka_offset_time, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
+    
+    if (time == -1) {
+        proto_item_append_text(ti, " (latest)");
+    } else if (time == -2) {
+        proto_item_append_text(ti, " (earliest)");
+    }
 
     return offset;
 }
