@@ -536,6 +536,12 @@ static const value_string kafka_batch_control_batch_values[] = {
     { 0, NULL }
 };
 
+static const value_string kafka_coordinator_types[] = {
+    { 0, "Group" },
+    { 1, "Transaction" },
+    { 0, NULL }
+};
+
 static const value_string kafka_security_protocol_types[] = {
     { 0, "PLAINTEXT" },
     { 1, "SSL" },
@@ -7577,7 +7583,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_coordinator_type,
             { "Coordinator Type", "kafka.coordinator_type",
-               FT_INT8, BASE_DEC, 0, 0,
+               FT_INT8, BASE_DEC, VALS(kafka_coordinator_types), 0,
                NULL, HFILL }
         },
         { &hf_kafka_request_frame,
