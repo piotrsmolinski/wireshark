@@ -1130,6 +1130,9 @@ ws_find_package(LZ4 ENABLE_LZ4 HAVE_LZ4)
 # Snappy compression
 ws_find_package(SNAPPY ENABLE_SNAPPY HAVE_SNAPPY)
 
+# zstd compression
+ws_find_package(ZSTD ENABLE_ZSTD HAVE_ZSTD)
+
 # Enhanced HTTP/2 dissection
 ws_find_package(NGHTTP2 ENABLE_NGHTTP2 HAVE_NGHTTP2)
 
@@ -1542,6 +1545,11 @@ set_package_properties(SNAPPY PROPERTIES
 	URL "http://google.github.io/snappy/"
 	PURPOSE "Snappy decompression in CQL and Kafka dissectors"
 )
+set_package_properties(ZSTD PROPERTIES
+	DESCRIPTION "A compressor/decompressor from Facebook providing better compression than Snappy at a cost of speed"
+	URL "https://facebook.github.io/zstd/"
+	PURPOSE "Zstd decompression in Kafka dissector"
+)
 set_package_properties(NGHTTP2 PROPERTIES
 	DESCRIPTION "HTTP/2 C library and tools"
 	URL "https://nghttp2.org"
@@ -1764,6 +1772,9 @@ if(WIN32)
 	if (LZ4_FOUND)
 		list (APPEND OPTIONAL_DLLS "${LZ4_DLL_DIR}/${LZ4_DLL}")
 	endif(LZ4_FOUND)
+	if (ZSTD_FOUND)
+		list (APPEND OPTIONAL_DLLS "${ZSTD_DLL_DIR}/${ZSTD_DLL}")
+	endif(ZSTD_FOUND)
 	if (NGHTTP2_FOUND)
 		list (APPEND OPTIONAL_DLLS "${NGHTTP2_DLL_DIR}/${NGHTTP2_DLL}")
 	endif(NGHTTP2_FOUND)
