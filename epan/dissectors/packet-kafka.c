@@ -1047,7 +1047,7 @@ dissect_kafka_string_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree
     
     val = (int)tvb_get_kafka_varint(tvb, offset, &len);
     
-    proto_tree_add_string(tree, hf_item, tvb, offset, len+val,
+    proto_tree_add_string(tree, hf_item, tvb, offset+len, val,
         tvb_get_string_enc(wmem_packet_scope(), tvb, offset+len, val, ENC_UTF_8|ENC_NA));
     
     return offset+len+val;
@@ -1062,7 +1062,7 @@ dissect_kafka_bytes_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     
     val = (int)tvb_get_kafka_varint(tvb, offset, &len);
     
-    proto_tree_add_bytes_with_length(tree, hf_item, tvb, offset, len+val,
+    proto_tree_add_bytes_with_length(tree, hf_item, tvb, offset+len, val,
         tvb_memdup(wmem_packet_scope(), tvb, offset+len, val), val);
     
     return offset+len+val;
