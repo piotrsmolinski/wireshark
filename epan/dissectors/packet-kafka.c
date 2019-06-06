@@ -2680,7 +2680,7 @@ dissect_kafka_produce_response_partition(tvbuff_t *tvb, packet_info *pinfo, prot
     }
 
     if (api_version >= 5) {
-        proto_tree_add_item(tree, hf_kafka_log_start_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
+        proto_tree_add_item(subtree, hf_kafka_log_start_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
         offset += 8;
     }
 
