@@ -54,8 +54,6 @@ static int hf_kafka_replica = -1;
 static int hf_kafka_replication_factor = -1;
 static int hf_kafka_isr = -1;
 static int hf_kafka_offline = -1;
-static int hf_kafka_partition_leader = -1;
-static int hf_kafka_partition_leader_epoch = -1;
 static int hf_kafka_last_stable_offset = -1;
 static int hf_kafka_log_start_offset = -1;
 static int hf_kafka_first_offset = -1;
@@ -1888,11 +1886,11 @@ dissect_kafka_metadata_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
 
     offset = dissect_kafka_partition_id(tvb, pinfo, subtree, offset, api_version);
 
-    proto_tree_add_item(subtree, hf_kafka_partition_leader, tvb, offset, 4, ENC_BIG_ENDIAN);
+    proto_tree_add_item(subtree, hf_kafka_leader_id, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
     
     if (api_version>=7) {
-        proto_tree_add_item(subtree, hf_kafka_partition_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+        proto_tree_add_item(subtree, hf_kafka_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
     }
 
@@ -4649,7 +4647,7 @@ dissect_kafka_offset_for_leader_epoch_response_topic_partition(tvbuff_t *tvb, pa
     offset += 4;
 
     if (api_version >= 1) {
-        proto_tree_add_item(subtree, hf_kafka_partition_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+        proto_tree_add_item(subtree, hf_kafka_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
     }
     
@@ -7460,16 +7458,6 @@ proto_register_kafka(void)
         },
         { &hf_kafka_offline,
             { "Offline Replica ID", "kafka.offline_id",
-                FT_INT32, BASE_DEC, 0, 0,
-                NULL, HFILL }
-        },
-        { &hf_kafka_partition_leader,
-            { "Leader", "kafka.leader",
-               FT_INT32, BASE_DEC, 0, 0,
-               NULL, HFILL }
-        },
-        { &hf_kafka_partition_leader_epoch,
-            { "Leader", "kafka.leader_epoch",
                 FT_INT32, BASE_DEC, 0, 0,
                 NULL, HFILL }
         },
