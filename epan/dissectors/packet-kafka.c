@@ -179,6 +179,10 @@ static int hf_kafka_token_expiry_timestamp = -1;
 static int hf_kafka_token_max_timestamp = -1;
 static int hf_kafka_token_id = -1;
 static int hf_kafka_token_hmac = -1;
+static int hf_kafka_include_cluster_authorized_ops = -1;
+static int hf_kafka_include_topic_authorized_ops = -1;
+static int hf_kafka_cluster_authorized_ops = -1;
+static int hf_kafka_topic_authorized_ops = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
@@ -312,7 +316,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_OFFSETS,                   "Offsets",
       0, 5 },
     { KAFKA_METADATA,                  "Metadata",
-      0, 7 },
+      0, 8 },
     { KAFKA_LEADER_AND_ISR,            "LeaderAndIsr",
       0, 2 },
     { KAFKA_STOP_REPLICA,              "StopReplica",
@@ -482,7 +486,7 @@ static const value_string kafka_errors[] = {
     { 79, "Member ID Required" },
     { 80, "Preferred Leader not Available" },
     { 81, "Group Max Size Reached" },
-    { 82, "Fenced Instance ID"}
+    { 82, "Fenced Instance ID"},
     { 0, NULL }
 };
 
@@ -2050,7 +2054,17 @@ dissect_kafka_metadata_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
         proto_tree_add_item(tree, hf_kafka_allow_auto_topic_creation, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
     }
-    
+
+    if (api_version >= 8) {
+        proto_tree_add_item(tree, hf_kafka_include_cluster_authorized_ops, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+    }
+
+    if (api_version >= 8) {
+        proto_tree_add_item(tree, hf_kafka_include_topic_authorized_ops, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+    }
+
     return offset;
 }
 
@@ -2186,6 +2200,11 @@ dissect_kafka_metadata_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_partition);
 
+    if (api_version >= 8) {
+        proto_tree_add_item(subtree, hf_kafka_topic_authorized_ops, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+
     proto_item_set_len(ti, offset - start_offset);
 
     return offset;
@@ -2221,6 +2240,11 @@ dissect_kafka_metadata_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topics, &ti, "Topic Metadata");
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_topic);
     proto_item_set_len(ti, offset - start_offset);
+
+    if (api_version >= 8) {
+        proto_tree_add_item(tree, hf_kafka_cluster_authorized_ops, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
 
     return offset;
 }
@@ -8278,6 +8302,26 @@ proto_register_kafka(void)
         { &hf_kafka_token_hmac,
             { "HMAC", "kafka.token_hmac",
                 FT_BYTES, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_include_cluster_authorized_ops,
+            { "Include Cluster Authorized Operations", "kafka.include_cluster_authorized_ops",
+                FT_BOOLEAN, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_include_topic_authorized_ops,
+            { "Include Topic Authorized Operations", "kafka.include_topic_authorized_ops",
+                FT_BOOLEAN, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_cluster_authorized_ops,
+            { "Cluster Authorized Operations", "kafka.cluster_authorized_ops",
+                FT_UINT32, BASE_HEX, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_topic_authorized_ops,
+            { "Topic Authorized Operations", "kafka.topic_authorized_ops",
+                FT_UINT32, BASE_HEX, 0, 0,
                 NULL, HFILL }
         },
     };
