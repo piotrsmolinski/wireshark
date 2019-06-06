@@ -25,6 +25,9 @@
 #include <lz4.h>
 #include <lz4frame.h>
 #endif
+#ifdef HAVE_ZSTD
+#include <zstd.h>
+#endif
 #include "packet-tcp.h"
 
 void proto_register_kafka(void);
@@ -497,11 +500,13 @@ static const value_string kafka_acks[] = {
 #define KAFKA_MESSAGE_CODEC_GZIP   1
 #define KAFKA_MESSAGE_CODEC_SNAPPY 2
 #define KAFKA_MESSAGE_CODEC_LZ4    3
+#define KAFKA_MESSAGE_CODEC_ZSTD   4
 static const value_string kafka_message_codecs[] = {
     { KAFKA_MESSAGE_CODEC_NONE,   "None"   },
     { KAFKA_MESSAGE_CODEC_GZIP,   "Gzip"   },
     { KAFKA_MESSAGE_CODEC_SNAPPY, "Snappy" },
     { KAFKA_MESSAGE_CODEC_LZ4,    "LZ4"    },
+    { KAFKA_MESSAGE_CODEC_ZSTD,   "Zstd"   },
     { 0, NULL }
 };
 #ifdef HAVE_SNAPPY
