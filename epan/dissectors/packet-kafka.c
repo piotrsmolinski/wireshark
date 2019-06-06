@@ -333,7 +333,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_FIND_COORDINATOR,          "FindCoordinator",
       0, 2 },
     { KAFKA_JOIN_GROUP,                "JoinGroup",
-      0, 4 },
+      0, 5 },
     { KAFKA_HEARTBEAT,                 "Heartbeat",
       0, 2 },
     { KAFKA_LEAVE_GROUP,               "LeaveGroup",
@@ -3932,6 +3932,12 @@ dissect_kafka_join_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
                                   &member_start, &member_len);
 
+    if (api_version >= 5) {
+        /* instance id */
+        offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
+                                      NULL, NULL);
+    }
+
     /* protocol_type */
     offset = dissect_kafka_string(tree, hf_kafka_protocol_type, tvb, pinfo, offset, NULL, NULL);
 
@@ -3954,7 +3960,7 @@ dissect_kafka_join_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
 
 static int
 dissect_kafka_join_group_response_member(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
-                                         int offset, kafka_api_version_t api_version _U_)
+                                         int offset, kafka_api_version_t api_version)
 {
     proto_item *subti;
     proto_tree *subtree;
@@ -3965,6 +3971,12 @@ dissect_kafka_join_group_response_member(tvbuff_t *tvb, packet_info *pinfo, prot
     /* member_id */
     offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
                                   &member_start, &member_len);
+
+    if (api_version >= 5) {
+        /* instance id */
+        offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
+                                      NULL, NULL);
+    }
 
     /* member_metadata */
     offset = dissect_kafka_bytes(subtree, hf_kafka_member_metadata, tvb, pinfo, offset, NULL, NULL);
