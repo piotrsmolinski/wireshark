@@ -359,7 +359,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_INIT_PRODUCER_ID,          "InitProducerId",
       0, 1 },
     { KAFKA_OFFSET_FOR_LEADER_EPOCH,   "OffsetForLeaderEpoch",
-      0, 2 },
+      0, 3 },
     { KAFKA_ADD_PARTITIONS_TO_TXN,     "AddPartitionsToTxn",
       0, 1 },
     { KAFKA_ADD_OFFSETS_TO_TXN,        "AddOffsetsToTxn",
@@ -4979,7 +4979,19 @@ dissect_kafka_offset_for_leader_epoch_request(tvbuff_t *tvb, packet_info *pinfo,
 {
     proto_item *subti;
     proto_tree *subtree;
+    gint32 replica_id;
     
+    if (api_version >= 3) {
+        replica_id = tvb_get_ntohl(tvb, offset);
+        subti = proto_tree_add_item(tree, hf_kafka_replica, tvb, offset, 4, ENC_BIG_ENDIAN);
+        if (replica_id==-2) {
+            proto_item_append_text(subti, " (debug)");
+        } else if (replica_id==-1) {
+            proto_item_append_text(subti, " (consumer)");
+        }
+        offset += 4;
+    }
+
     /* [topic] */
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
