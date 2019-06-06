@@ -482,6 +482,7 @@ static const value_string kafka_errors[] = {
     { 79, "Member ID Required" },
     { 80, "Preferred Leader not Available" },
     { 81, "Group Max Size Reached" },
+    { 82, "Fenced Instance ID"}
     { 0, NULL }
 };
 
