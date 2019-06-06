@@ -87,6 +87,7 @@ static int hf_kafka_message_compression_reduction = -1;
 static int hf_kafka_request_frame = -1;
 static int hf_kafka_response_frame = -1;
 static int hf_kafka_consumer_group = -1;
+static int hf_kafka_consumer_group_instance = -1;
 static int hf_kafka_coordinator_key = -1;
 static int hf_kafka_coordinator_type = -1;
 static int hf_kafka_group_state = -1;
@@ -326,7 +327,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_CONTROLLED_SHUTDOWN,       "ControlledShutdown",
       0, 2 },
     { KAFKA_OFFSET_COMMIT,             "OffsetCommit",
-      0, 6 },
+      0, 7 },
     { KAFKA_OFFSET_FETCH,              "OffsetFetch",
       0, 5 },
     { KAFKA_FIND_COORDINATOR,          "FindCoordinator",
@@ -3690,6 +3691,11 @@ dissect_kafka_offset_commit_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 
         /* member_id */
         offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset, NULL, NULL);
+        
+        if (api_version >= 7){
+            /* instance_id */
+            offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset, NULL, NULL);
+        }
 
         if (api_version >= 2 && api_version < 5) {
             /* retention_time */
@@ -7897,6 +7903,11 @@ proto_register_kafka(void)
         },
         { &hf_kafka_consumer_group,
             { "Consumer Group", "kafka.consumer_group",
+               FT_STRING, BASE_NONE, 0, 0,
+               NULL, HFILL }
+        },
+        { &hf_kafka_consumer_group_instance,
+            { "Consumer Group Instance", "kafka.consumer_group_instance",
                FT_STRING, BASE_NONE, 0, 0,
                NULL, HFILL }
         },
