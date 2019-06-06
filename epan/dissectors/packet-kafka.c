@@ -182,8 +182,10 @@ static int hf_kafka_token_id = -1;
 static int hf_kafka_token_hmac = -1;
 static int hf_kafka_include_cluster_authorized_ops = -1;
 static int hf_kafka_include_topic_authorized_ops = -1;
+static int hf_kafka_include_group_authorized_ops = -1;
 static int hf_kafka_cluster_authorized_ops = -1;
 static int hf_kafka_topic_authorized_ops = -1;
+static int hf_kafka_group_authorized_ops = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
@@ -341,7 +343,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_SYNC_GROUP,                "SyncGroup",
       0, 3 },
     { KAFKA_DESCRIBE_GROUPS,           "DescribeGroups",
-      0, 2 },
+      0, 3 },
     { KAFKA_LIST_GROUPS,               "ListGroups",
       0, 2 },
     { KAFKA_SASL_HANDSHAKE,            "SaslHandshake",
@@ -4235,6 +4237,11 @@ dissect_kafka_describe_groups_request(tvbuff_t *tvb, packet_info *pinfo, proto_t
     offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
                                  &dissect_kafka_describe_groups_request_group_id);
 
+    if (api_version >= 3) {
+        proto_tree_add_item(tree, hf_kafka_include_group_authorized_ops, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+    }
+
     return offset;
 }
 
@@ -4303,6 +4310,11 @@ dissect_kafka_describe_groups_response_group(tvbuff_t *tvb, packet_info *pinfo, 
     offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
                                  &dissect_kafka_describe_groups_response_member);
     proto_item_set_end(subsubti, tvb, offset);
+
+    if (api_version >= 3) {
+        proto_tree_add_item(subtree, hf_kafka_group_authorized_ops, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Group-ID=%s)",
@@ -8402,6 +8414,16 @@ proto_register_kafka(void)
         },
         { &hf_kafka_topic_authorized_ops,
             { "Topic Authorized Operations", "kafka.topic_authorized_ops",
+                FT_UINT32, BASE_HEX, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_include_group_authorized_ops,
+            { "Include Group Authorized Operations", "kafka.include_group_authorized_ops",
+                FT_BOOLEAN, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_group_authorized_ops,
+            { "Group Authorized Operations", "kafka.group_authorized_ops",
                 FT_UINT32, BASE_HEX, 0, 0,
                 NULL, HFILL }
         },
