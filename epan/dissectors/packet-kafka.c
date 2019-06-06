@@ -101,7 +101,7 @@ static int hf_kafka_broker_epoch = -1;
 static int hf_kafka_broker_host = -1;
 static int hf_kafka_listener_name = -1;
 static int hf_kafka_broker_port = -1;
-static int hf_kafka_broker_rack = -1;
+static int hf_kafka_rack = -1;
 static int hf_kafka_broker_security_protocol_type = -1;
 static int hf_kafka_cluster_id = -1;
 static int hf_kafka_controller_id = -1;
@@ -308,7 +308,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_PRODUCE,                   "Produce",
       0, 7 },
     { KAFKA_FETCH,                     "Fetch",
-      0, 10 },
+      0, 11 },
     { KAFKA_OFFSETS,                   "Offsets",
       0, 4 },
     { KAFKA_METADATA,                  "Metadata",
@@ -2077,7 +2077,7 @@ dissect_kafka_metadata_broker(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
     offset += 4;
 
     if (api_version >= 1) {
-        offset = dissect_kafka_string(subtree, hf_kafka_broker_rack, tvb, pinfo, offset, NULL, NULL);
+        offset = dissect_kafka_string(subtree, hf_kafka_rack, tvb, pinfo, offset, NULL, NULL);
     }
 
     proto_item_append_text(ti, " (node %u: %s:%u)",
@@ -2711,6 +2711,10 @@ dissect_kafka_fetch_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version, &dissect_kafka_fetch_request_forgotten_topics_data);
     }
 
+    if (api_version >= 11) {
+        offset = dissect_kafka_string(tree, hf_kafka_rack, tvb, pinfo, offset, NULL, NULL);
+    }
+
     return offset;
 }
 
@@ -2830,6 +2834,11 @@ dissect_kafka_fetch_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 
     if (api_version >= 7) {
         proto_tree_add_item(tree, hf_kafka_fetch_session_id, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+
+    if (api_version >= 11) {
+        proto_tree_add_item(tree, hf_kafka_replica, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
     }
 
@@ -3393,7 +3402,7 @@ dissect_kafka_update_metadata_request_live_leader(tvbuff_t *tvb, packet_info *pi
 
         if (api_version >= 2) {
             /* rack */
-            offset = dissect_kafka_string(subtree, hf_kafka_broker_rack, tvb, pinfo, offset, NULL, NULL);
+            offset = dissect_kafka_string(subtree, hf_kafka_rack, tvb, pinfo, offset, NULL, NULL);
         }
 
         proto_item_append_text(subti, " (node %d)",
@@ -7860,7 +7869,7 @@ proto_register_kafka(void)
                FT_INT32, BASE_DEC, 0, 0,
                NULL, HFILL }
         },
-        { &hf_kafka_broker_rack,
+        { &hf_kafka_rack,
             { "Rack", "kafka.rack",
                FT_STRING, BASE_NONE, 0, 0,
                NULL, HFILL }
