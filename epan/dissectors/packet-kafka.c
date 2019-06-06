@@ -335,7 +335,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_JOIN_GROUP,                "JoinGroup",
       0, 5 },
     { KAFKA_HEARTBEAT,                 "Heartbeat",
-      0, 2 },
+      0, 3 },
     { KAFKA_LEAVE_GROUP,               "LeaveGroup",
       0, 2 },
     { KAFKA_SYNC_GROUP,                "SyncGroup",
@@ -4052,6 +4052,12 @@ dissect_kafka_heartbeat_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
     /* member_id */
     offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
                                   &member_start, &member_len);
+    
+    if (api_version >= 3) {
+        /* instance_id */
+        offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
+                                      NULL, NULL);
+    }
 
     col_append_fstr(pinfo->cinfo, COL_INFO,
                     " (Group=%s, Member=%s)",
