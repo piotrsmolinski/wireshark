@@ -310,7 +310,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_FETCH,                     "Fetch",
       0, 11 },
     { KAFKA_OFFSETS,                   "Offsets",
-      0, 4 },
+      0, 5 },
     { KAFKA_METADATA,                  "Metadata",
       0, 7 },
     { KAFKA_LEADER_AND_ISR,            "LeaderAndIsr",
