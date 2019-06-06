@@ -7438,7 +7438,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_producer_epoch,
             { "Producer Epoch", "kafka.producer_epoch",
-                FT_UINT16, BASE_DEC, 0, 0,
+                FT_INT16, BASE_DEC, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_partition_id,
@@ -7543,7 +7543,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_batch_base_sequence,
             { "Base Sequence", "kafka.batch_base_sequence",
-                FT_UINT32, BASE_DEC, 0, 0,
+                FT_INT32, BASE_DEC, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_batch_size,
