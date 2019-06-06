@@ -1419,16 +1419,245 @@ dissect_kafka_record(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, in
 }
 
 static int
+decompress_none(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length _U_, tvbuff_t **decompressed_tvb, int *decompressed_offset)
+{
+    *decompressed_tvb = tvb;
+    *decompressed_offset = offset;
+    return 1;
+}
+
+static int
+decompress_gzip(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length, tvbuff_t **decompressed_tvb, int *decompressed_offset)
+{
+    *decompressed_tvb = tvb_child_uncompress(tvb, tvb, offset, length);
+    *decompressed_offset = 0;
+    if (*decompressed_tvb) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+static int
+decompress_lz4(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length, tvbuff_t **decompressed_tvb, int *decompressed_offset)
+{
+
+#ifdef HAVE_LZ4FRAME_H
+    LZ4F_decompressionContext_t lz4_ctxt;
+    LZ4F_frameInfo_t lz4_info;
+    LZ4F_errorCode_t ret;
+    size_t src_offset, src_size, dst_size;
+    guchar *decompressed_buffer = NULL;
+    
+    /* Prepare compressed data buffer */
+    guint8 *data = (guint8*)tvb_memdup(wmem_packet_scope(), tvb, offset, length);
+    /* Override header checksum to workaround buggy Kafka implementations */
+    if (length > 7) {
+        int hdr_end = 6;
+        if (data[4] & 0x08) {
+            hdr_end += 8;
+        }
+        if (hdr_end < length) {
+            data[hdr_end] = (XXH32(&data[4], hdr_end - 4, 0) >> 8) & 0xff;
+        }
+    }
+    
+    /* Allocate output buffer */
+    ret = LZ4F_createDecompressionContext(&lz4_ctxt, LZ4F_VERSION);
+    if (LZ4F_isError(ret)) {
+        goto fail;
+    }
+    
+    src_offset = length;
+    ret = LZ4F_getFrameInfo(lz4_ctxt, &lz4_info, data, &src_offset);
+    if (LZ4F_isError(ret)) {
+        LZ4F_freeDecompressionContext(lz4_ctxt);
+        goto fail;
+    }
+
+    switch (lz4_info.blockSizeID) {
+        case LZ4F_max64KB:
+            dst_size = 1 << 16;
+            break;
+        case LZ4F_max256KB:
+            dst_size = 1 << 18;
+            break;
+        case LZ4F_max1MB:
+            dst_size = 1 << 20;
+            break;
+        case LZ4F_max4MB:
+            dst_size = 1 << 22;
+            break;
+        default:
+            LZ4F_freeDecompressionContext(lz4_ctxt);
+            goto fail;
+    }
+    if (lz4_info.contentSize && lz4_info.contentSize < dst_size) {
+        dst_size = (size_t)lz4_info.contentSize;
+    }
+    decompressed_buffer = (guchar*)wmem_alloc(pinfo->pool, dst_size);
+    
+    /* Attempt the decompression. */
+    src_size = length - src_offset;
+    ret = LZ4F_decompress(lz4_ctxt, decompressed_buffer, &dst_size,
+                          &data[src_offset], &src_size, NULL);
+    LZ4F_freeDecompressionContext(lz4_ctxt);
+
+    if (ret == 0) {
+        size_t uncompressed_size = dst_size;
+        
+        /* Add as separate data tab */
+        *decompressed_tvb = tvb_new_child_real_data(tvb, decompressed_buffer,
+                                          (guint32)uncompressed_size, (guint32)uncompressed_size);
+        *decompressed_offset = 0;
+        return 1;
+    }
+
+fail:
+    return 0;
+#else
+    return 0;
+#endif /* HAVE_LZ4FRAME_H */
+}
+
+static int
+decompress_snappy(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length, tvbuff_t **decompressed_tvb, int *decompressed_offset)
+{
+#ifdef HAVE_SNAPPY
+    guint8 *data = (guint8*)tvb_memdup(wmem_packet_scope(), tvb, offset, length);
+    size_t uncompressed_size;
+    snappy_status ret = SNAPPY_INVALID_INPUT;
+    
+    if (tvb_memeql(tvb, offset, kafka_xerial_header, sizeof(kafka_xerial_header)) == 0) {
+        
+        /* xerial framing format */
+        int chunk_size, pos = 16;
+        
+        *decompressed_tvb = tvb_new_composite();
+        *decompressed_offset = 0;
+        while (pos < length) {
+            chunk_size = tvb_get_ntohl(tvb, offset+pos);
+            pos += 4;
+            ret = snappy_uncompressed_length(&data[pos], chunk_size, &uncompressed_size);
+            if (ret == SNAPPY_OK) {
+                guint8 *decompressed_buffer = (guint8*)wmem_alloc(pinfo->pool, uncompressed_size);
+                
+                ret = snappy_uncompress(&data[pos], chunk_size, decompressed_buffer, &uncompressed_size);
+                if (ret == SNAPPY_OK) {
+                    tvb_composite_append(*decompressed_tvb,
+                                         tvb_new_child_real_data(tvb, decompressed_buffer,
+                                                                 (guint32)uncompressed_size, (guint32)uncompressed_size));
+                } else {
+                    wmem_free(pinfo->pool, decompressed_buffer);
+                    break;
+                }
+            }
+            pos += chunk_size;
+        }
+        tvb_composite_finalize(*decompressed_tvb);
+        
+    } else {
+        
+        /* unframed format */
+        ret = snappy_uncompressed_length(data, length, &uncompressed_size);
+        if (ret == SNAPPY_OK) {
+            guint8 *decompressed_buffer = (guint8*)wmem_alloc(pinfo->pool, uncompressed_size);
+            
+            ret = snappy_uncompress(data, length, decompressed_buffer, &uncompressed_size);
+            if (ret == SNAPPY_OK) {
+                *decompressed_tvb = tvb_new_child_real_data(tvb, decompressed_buffer,
+                                                  (guint32)uncompressed_size, (guint32)uncompressed_size);
+                *decompressed_offset = 0;
+            } else {
+                wmem_free(pinfo->pool, decompressed_buffer);
+            }
+        }
+    }
+    if (ret == SNAPPY_OK) {
+        return 1;
+    } else {
+        return 0;
+    }
+#else
+    return 0;
+#endif
+}
+
+
+static int
+decompress_zstd(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length, tvbuff_t **decompressed_tvb, int *decompressed_offset)
+{
+#ifdef HAVE_ZSTD
+
+    ZSTD_inBuffer input = { tvb_memdup(wmem_packet_scope(), tvb, offset, length), length, 0 };
+
+    ZSTD_DStream *zds = ZSTD_createDStream();
+    
+    size_t size;
+    
+    *decompressed_tvb = tvb_new_composite();
+    *decompressed_offset = 0;
+
+    do {
+        ZSTD_outBuffer output = { wmem_alloc(pinfo->pool, ZSTD_DStreamOutSize()), ZSTD_DStreamOutSize(), 0 };
+        size = ZSTD_decompressStream(zds, &output, &input);
+        //printf("size: %ld, pos: %ld\n", size, output.pos);
+        if (size<0) {
+            break;
+        }
+        tvb_composite_append(*decompressed_tvb,
+                             tvb_new_child_real_data(tvb, output.dst, (int)output.pos, (int)output.pos));
+    } while (size!=0);
+
+    ZSTD_freeDStream(zds);
+
+    if (ZSTD_isError(size)) {
+        return 0;
+    } else {
+        tvb_composite_finalize(*decompressed_tvb);
+        return 1;
+    }
+
+#else
+    col_append_fstr(pinfo->cinfo, COL_INFO, " [zstd compression unsupported] ");
+    return 0;
+#endif
+}
+
+static int
+decompress(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, int codec, tvbuff_t **decompressed_tvb, int *decompressed_offset)
+{
+    switch (codec) {
+        case KAFKA_MESSAGE_CODEC_SNAPPY:
+            return decompress_snappy(tvb, pinfo, offset, length, decompressed_tvb, decompressed_offset);
+        case KAFKA_MESSAGE_CODEC_LZ4:
+            return decompress_lz4(tvb, pinfo, offset, length, decompressed_tvb, decompressed_offset);
+        case KAFKA_MESSAGE_CODEC_ZSTD:
+            return decompress_zstd(tvb, pinfo, offset, length, decompressed_tvb, decompressed_offset);
+        case KAFKA_MESSAGE_CODEC_GZIP:
+            return decompress_gzip(tvb, pinfo, offset, length, decompressed_tvb, decompressed_offset);
+        case KAFKA_MESSAGE_CODEC_NONE:
+            return decompress_none(tvb, pinfo, offset, length, decompressed_tvb, decompressed_offset);
+        default:
+            return 0;
+    }
+}
+
+static int
 dissect_kafka_message_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int start_offset)
 {
+    
     proto_item *batch_ti;
     proto_tree *subtree;
     int         offset = start_offset;
     gint8       magic_byte;
     guint8      codec;
     guint32     message_size;
-    guint32     count, i;
+    guint32     count, i, length;
     guint64     base_offset, first_timestamp;
+    
+    tvbuff_t    *decompressed_tvb;
+    int         decompressed_offset;
     
     message_size = tvb_get_guint32(tvb, start_offset + 8, ENC_BIG_ENDIAN);
 
@@ -1452,7 +1681,7 @@ dissect_kafka_message_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
         proto_item_append_text(subtree, "[Unknown message magic]");
         expert_add_info_format(pinfo, batch_ti, &ei_kafka_unknown_message_magic,
                                "message magic: %d", magic_byte);
-        return offset;
+        return start_offset + 8 /*base offset*/ + 4 /*message size*/ + message_size;
     }
     
     proto_tree_add_item(subtree, hf_kafka_batch_crc, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -1485,8 +1714,18 @@ dissect_kafka_message_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
     count = tvb_get_ntohl(tvb, offset);
     offset += 4;
 
-    for (i=0;i<count;i++) {
-        offset = dissect_kafka_record(tvb, pinfo, subtree, offset, base_offset, first_timestamp);
+    length = start_offset + 8 /*base offset*/ + 4 /*message size*/ + message_size - offset;
+    
+    if (decompress(tvb, pinfo, offset, length, codec, &decompressed_tvb, &decompressed_offset)==1) {
+        if (codec != 0) {
+            add_new_data_source(pinfo, decompressed_tvb, "Decompressed Records");
+            show_compression_reduction(tvb, subtree, length, tvb_captured_length(decompressed_tvb));
+        }
+        for (i=0;i<count;i++) {
+            offset = dissect_kafka_record(decompressed_tvb, pinfo, subtree, decompressed_offset, base_offset, first_timestamp);
+        }
+    } else {
+        proto_item_append_text(subtree, " [Cannot decompress records]");
     }
     
     return start_offset + 8 /*base offset*/ + 4 /*message size*/ + message_size;
