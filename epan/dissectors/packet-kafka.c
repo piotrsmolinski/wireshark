@@ -1081,8 +1081,26 @@ dissect_kafka_offset_delta(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tr
     return offset;
 }
 
+/*
+ * Function: dissect_kafka_string_new
+ * ---------------------------------------------------
+ * Decodes UTF string using the new length encoding. This format is used
+ * in the v2 message encoding, where the string length is encoded using
+ * ProtoBuf's ZigZag integer format (inspired by Avro). The main advantage
+ * of ZigZag is very compact representation for small numbers.
+ *
+ * tvb: actual data buffer
+ * pinfo: packet information (unused)
+ * tree: protocol information tree to append the item
+ * hf_item: protocol information item descriptor index
+ * offset: offset in the buffer where the string length is to be found
+ * p_string_offset: pointer to a variable to store the actual string begin
+ * p_string_length: pointer to a variable to store the actual string length
+ *
+ * returns: pointer to the next field in the message
+ */
 static int
-dissect_kafka_string_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int hf_item, int offset)
+dissect_kafka_string_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int hf_item, int offset, int *p_string_offset, int *p_string_length)
 {
     
     int val, len;
@@ -1092,12 +1110,37 @@ dissect_kafka_string_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree
     proto_tree_add_string(tree, hf_item, tvb, offset+len, val,
         tvb_get_string_enc(wmem_packet_scope(), tvb, offset+len, val, ENC_UTF_8|ENC_NA));
     
+    if (p_string_offset!=NULL) {
+        *p_string_offset = offset+len;
+    }
+    if (p_string_length!=NULL) {
+        *p_string_length = len;
+    }
+
     return offset+len+val;
     
 }
 
+/*
+ * Function: dissect_kafka_bytes_new
+ * ---------------------------------------------------
+ * Decodes byte buffer using the new length encoding. This format is used
+ * in the v2 message encoding, where the buffer length is encoded using
+ * ProtoBuf's ZigZag integer format (inspired by Avro). The main advantage
+ * of ZigZag is very compact representation for small numbers.
+ *
+ * tvb: actual data buffer
+ * pinfo: packet information (unused)
+ * tree: protocol information tree to append the item
+ * hf_item: protocol information item descriptor index
+ * offset: offset in the buffer where the string length is to be found
+ * p_bytes_offset: pointer to a variable to store the actual buffer begin
+ * p_bytes_length: pointer to a variable to store the actual buffer length
+ *
+ * returns: pointer to the next field in the message
+ */
 static int
-dissect_kafka_bytes_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int hf_item, int offset)
+dissect_kafka_bytes_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int hf_item, int offset, int *p_bytes_offset, int *p_bytes_length)
 {
     
     int val, len;
@@ -1107,6 +1150,13 @@ dissect_kafka_bytes_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     proto_tree_add_bytes_with_length(tree, hf_item, tvb, offset+len, val,
         tvb_memdup(wmem_packet_scope(), tvb, offset+len, val), val);
     
+    if (p_bytes_offset!=NULL) {
+        *p_bytes_offset = offset+len;
+    }
+    if (p_bytes_length!=NULL) {
+        *p_bytes_length = len;
+    }
+
     return offset+len+val;
 
 }
@@ -1392,8 +1442,8 @@ dissect_kafka_record_headers_header(tvbuff_t *tvb, packet_info *pinfo _U_, proto
     
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_record_headers_header, &header_ti, "Header");
     
-    offset = dissect_kafka_string_new(tvb, pinfo, subtree, hf_kafka_record_header_key, offset);
-    offset = dissect_kafka_bytes_new(tvb, pinfo, subtree, hf_kafka_record_header_value, offset);
+    offset = dissect_kafka_string_new(tvb, pinfo, subtree, hf_kafka_record_header_key, offset, NULL, NULL);
+    offset = dissect_kafka_bytes_new(tvb, pinfo, subtree, hf_kafka_record_header_value, offset, NULL, NULL);
 
     proto_item_set_len(header_ti, offset-start_offset);
     
@@ -1451,8 +1501,8 @@ dissect_kafka_record(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, in
     offset = dissect_kafka_timestamp_delta(tvb, pinfo, subtree, hf_kafka_message_timestamp, offset, first_timestamp);
     offset = dissect_kafka_offset_delta(tvb, pinfo, subtree, hf_kafka_offset, offset, base_offset);
 
-    offset = dissect_kafka_bytes_new(tvb, pinfo, subtree, hf_kafka_message_key, offset);
-    offset = dissect_kafka_bytes_new(tvb, pinfo, subtree, hf_kafka_message_value, offset);
+    offset = dissect_kafka_bytes_new(tvb, pinfo, subtree, hf_kafka_message_key, offset, NULL, NULL);
+    offset = dissect_kafka_bytes_new(tvb, pinfo, subtree, hf_kafka_message_value, offset, NULL, NULL);
 
     offset = dissect_kafka_record_headers(tvb, pinfo, subtree, offset);
     
@@ -1643,7 +1693,6 @@ decompress_zstd(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length, t
     do {
         ZSTD_outBuffer output = { wmem_alloc(pinfo->pool, ZSTD_DStreamOutSize()), ZSTD_DStreamOutSize(), 0 };
         size = ZSTD_decompressStream(zds, &output, &input);
-        //printf("size: %ld, pos: %ld\n", size, output.pos);
         if (size<0) {
             break;
         }
