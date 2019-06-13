@@ -1015,36 +1015,105 @@ dissect_kafka_timestamp(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     return offset;
 }
 
-static long
-tvb_get_kafka_varint(tvbuff_t *tvb, int offset, int *length)
+/*
+ * Function: tvb_read_kafka_varint32
+ * ---------------------------------------------------
+ * Reads 32-bit integer encoded as zig-zag. The 32-bit integer
+ * takes up to 5 octets (32 = 4*7+4).
+ *
+ * tvb: actual data buffer
+ * offset: offset in the buffer where the string length is to be found
+ * p_val: pointer to a variable to store the returned value
+ * p_len: pointer to a variable to store the length of the variable
+ *
+ * returns: pointer to the next field in the message or -1
+ */
+static gint32
+tvb_read_kafka_varint32(tvbuff_t *tvb, int offset, gint32 *p_val, int *p_len)
 {
+    
+    gint32 v = 0;
+    guint8 p = 0;
+    int    i = 0;
+    
+    do {
+        p = tvb_get_guint8(tvb, offset+i);
+        v += (p & 0x7f) << (i*7);
+        i += 1;
+    } while ((p&0x80)!=0 && i<5);
 
-    long value = 0;
-    guint8 part;
-    int i = 0;
+    // 32-bit integer in zig-zag can take up to 5 octets
+    // the last octet can take at most 4 bits
+
+    // either continuation bit is set or there are more than 32 bits
+    DISSECTOR_ASSERT((p&0x80)==0);
+    DISSECTOR_ASSERT(i<5 || (p&0x70)==0);
+
+    if (p_val != NULL) {
+        *p_val = (v>>1) ^ ((v & 1) ? -1 : 0);
+    }
+    if (p_len != NULL) {
+        *p_len = i;
+    }
+    
+    return offset+i;
+    
+}
+
+/*
+ * Function: tvb_read_kafka_varint64
+ * ---------------------------------------------------
+ * Reads 64-bit integer encoded as zig-zag. The 64-bit integer
+ * takes up to 10 octets (64 = 9*7+1).
+ *
+ * tvb: actual data buffer
+ * offset: offset in the buffer where the string length is to be found
+ * p_val: pointer to a variable to store the returned value
+ * p_len: pointer to a variable to store the length of the variable
+ *
+ * returns: pointer to the next field in the message or -1
+ */
+
+static gint64
+tvb_read_kafka_varint64(tvbuff_t *tvb, int offset, gint64 *p_val, int *p_len)
+{
+    
+    gint64 v = 0;
+    guint8 p = 0;
+    int    i = 0;
 
     do {
-        part = tvb_get_guint8(tvb, offset);
-        value += (part & 0x7f) << (i*7);
-        offset += 1;
+        p = tvb_get_guint8(tvb, offset+i);
+        v += (p & 0x7f) << (i*7);
         i += 1;
-    } while ((part&0x80)!=0);
+    } while ((p&0x80)!=0 && i<10);
     
-    if (length != NULL) *length = i;
+    // 64-bit integer in zig-zag can take up to 10 octets
+    // the last octet can take at most 1 bit
+    
+    // either continuation bit is set or there are more than 64 bits
+    DISSECTOR_ASSERT((p&0x80)==0);
+    DISSECTOR_ASSERT(i<10 || (p&0x7e)==0);
 
-    return (value>>1) ^ ((value & 1) ? -1 : 0);
-
+    if (p_val != NULL) {
+        *p_val = (v>>1) ^ ((v & 1) ? -1 : 0);
+    }
+    if (p_len != NULL) {
+        *p_len = i;
+    }
+    
+    return offset+i;
+    
 }
 
 static int
 dissect_kafka_varint(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int hf_item, int offset)
 {
-    long val;
-    int  len;
-    val = tvb_get_kafka_varint(tvb, offset, &len);
-    proto_tree_add_uint64(tree, hf_item, tvb, offset, len, val);
+    gint64 val;
+    int    len;
+    tvb_read_kafka_varint64(tvb, offset, &val, &len);
+    proto_tree_add_int64(tree, hf_item, tvb, offset, len, val);
     return offset+len;
-
 }
 
 static int
@@ -1052,33 +1121,31 @@ dissect_kafka_timestamp_delta(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree 
 {
     nstime_t nstime;
     guint64  milliseconds;
-    long val;
-    int  len;
+    guint64  val;
+    int      len;
 
-    val = tvb_get_kafka_varint(tvb, offset, &len);
+    tvb_read_kafka_varint64(tvb, offset, &val, &len);
 
     milliseconds = first_timestamp + val;
     nstime.secs  = (time_t) (milliseconds / 1000);
     nstime.nsecs = (int) ((milliseconds % 1000) * 1000000);
-    
+
     proto_tree_add_time(tree, hf_item, tvb, offset, len, &nstime);
-    offset += len;
-    
-    return offset;
+
+    return offset+len;
 }
 
 static int
 dissect_kafka_offset_delta(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int hf_item, int offset, guint64 base_offset)
 {
-    long val;
-    int  len;
+    gint64 val;
+    int    len;
     
-    val = tvb_get_kafka_varint(tvb, offset, &len);
+    tvb_read_kafka_varint64(tvb, offset, &val, &len);
 
     proto_tree_add_int64(tree, hf_item, tvb, offset, len, base_offset+val);
-    offset += len;
-    
-    return offset;
+
+    return offset+len;
 }
 
 /*
@@ -1103,10 +1170,13 @@ static int
 dissect_kafka_string_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int hf_item, int offset, int *p_string_offset, int *p_string_length)
 {
     
-    int val, len;
+    gint val;
+    gint len;
     
-    val = (int)tvb_get_kafka_varint(tvb, offset, &len);
+    tvb_read_kafka_varint32(tvb, offset, &val, &len);
     
+    DISSECTOR_ASSERT(val>=0);
+
     proto_tree_add_string(tree, hf_item, tvb, offset+len, val,
         tvb_get_string_enc(wmem_packet_scope(), tvb, offset+len, val, ENC_UTF_8|ENC_NA));
     
@@ -1114,7 +1184,7 @@ dissect_kafka_string_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree
         *p_string_offset = offset+len;
     }
     if (p_string_length!=NULL) {
-        *p_string_length = len;
+        *p_string_length = val;
     }
 
     return offset+len+val;
@@ -1143,10 +1213,13 @@ static int
 dissect_kafka_bytes_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int hf_item, int offset, int *p_bytes_offset, int *p_bytes_length)
 {
     
-    int val, len;
+    gint val;
+    gint len;
     
-    val = (int)tvb_get_kafka_varint(tvb, offset, &len);
+    tvb_read_kafka_varint32(tvb, offset, &val, &len);
     
+    DISSECTOR_ASSERT(val>=0);
+
     proto_tree_add_bytes_with_length(tree, hf_item, tvb, offset+len, val,
         tvb_memdup(wmem_packet_scope(), tvb, offset+len, val), val);
     
@@ -1431,69 +1504,72 @@ dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
 }
 
 static int
-dissect_kafka_record_headers_header(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int start_offset)
+dissect_kafka_record_headers_header(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset)
 {
     
     proto_item *header_ti;
     proto_tree *subtree;
-    int offset;
-    
-    offset = start_offset;
+
+    int key_off, key_len;
     
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_record_headers_header, &header_ti, "Header");
     
-    offset = dissect_kafka_string_new(tvb, pinfo, subtree, hf_kafka_record_header_key, offset, NULL, NULL);
+    offset = dissect_kafka_string_new(tvb, pinfo, subtree, hf_kafka_record_header_key, offset, &key_off, &key_len);
     offset = dissect_kafka_bytes_new(tvb, pinfo, subtree, hf_kafka_record_header_value, offset, NULL, NULL);
 
-    proto_item_set_len(header_ti, offset-start_offset);
+    proto_item_append_text(header_ti, " (Key: %s)",
+                           tvb_get_string_enc(wmem_packet_scope(), tvb, key_off, key_len, ENC_UTF_8));
+    proto_item_set_end(header_ti, tvb, offset);
     
     return offset;
     
 }
 static int
-dissect_kafka_record_headers(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int start_offset)
+dissect_kafka_record_headers(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset)
 {
     
     proto_item *record_headers_ti;
     proto_tree *subtree;
-    int offset, count, i;
     
-    offset = start_offset;
+    gint32 count;
+    int i;
     
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_record_headers, &record_headers_ti, "Headers");
     
-    // TODO: check for count >=0
-    count = (int)tvb_get_kafka_varint(tvb, offset, NULL);
+    tvb_read_kafka_varint32(tvb, offset, &count, NULL);
     offset = dissect_kafka_varint(tvb, pinfo, subtree, hf_kafka_record_headers_count, offset);
 
+    DISSECTOR_ASSERT(count>=-1);
     for (i=0;i<count;i++) {
         offset = dissect_kafka_record_headers_header(tvb, pinfo, subtree, offset);
     }
     
-    proto_item_set_len(record_headers_ti, offset-start_offset);
+    proto_item_set_end(record_headers_ti, tvb, offset);
     
     return offset;
     
 }
 
 static int
-dissect_kafka_record(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int start_offset, long base_offset, long first_timestamp)
+dissect_kafka_record(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int start_offset, guint64 base_offset, guint64 first_timestamp)
 {
     proto_item *record_ti;
     proto_tree *subtree;
-    int offset, length, end_offset;
+    
+    gint32 val;
+    int len;
+
+    int offset, end_offset;
     
     offset = start_offset;
     
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_record, &record_ti, "Record");
     
-    // TODO: check for length >=0
-    length = (int)tvb_get_kafka_varint(tvb, offset, NULL);
+    tvb_read_kafka_varint32(tvb, offset, &val, &len);
+    DISSECTOR_ASSERT(val >= 0);
+    end_offset = offset + len + val;
 
     offset = dissect_kafka_varint(tvb, pinfo, subtree, hf_kafka_record_length, offset);
-    
-    end_offset = offset + length;
-    proto_item_set_len(record_ti, offset-start_offset+length);
 
     proto_tree_add_item(subtree, hf_kafka_record_attributes, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
@@ -1506,6 +1582,10 @@ dissect_kafka_record(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, in
 
     offset = dissect_kafka_record_headers(tvb, pinfo, subtree, offset);
     
+    DISSECTOR_ASSERT(offset == end_offset);
+
+    proto_item_set_end(record_ti, tvb, offset);
+
     return end_offset;
     
 }
@@ -7924,7 +8004,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_metadata,
             { "Metadata", "kafka.metadata",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_error,
@@ -7934,7 +8014,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_error_message,
             { "Error Message", "kafka.error_message",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_api_key,
@@ -7977,17 +8057,17 @@ proto_register_kafka(void)
         },
         { &hf_kafka_client_id,
             { "Client ID", "kafka.client_id",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
               "The ID of the sending client.", HFILL }
         },
         { &hf_kafka_client_host,
             { "Client Host", "kafka.client_host",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_transactional_id,
             { "Transactional ID", "kafka.transactional_id",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_transaction_result,
@@ -8022,7 +8102,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_topic_name,
             { "Topic Name", "kafka.topic_name",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_UNICODE, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_producer_id,
@@ -8172,17 +8252,17 @@ proto_register_kafka(void)
         },
         { &hf_kafka_consumer_group,
             { "Consumer Group", "kafka.consumer_group",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_consumer_group_instance,
             { "Consumer Group Instance", "kafka.consumer_group_instance",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_coordinator_key,
             { "Coordinator Key", "kafka.coordinator_key",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_coordinator_type,
@@ -8207,12 +8287,12 @@ proto_register_kafka(void)
         },
         { &hf_kafka_broker_host,
             { "Host", "kafka.host",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_listener_name,
-            { "Host", "kafka.listener_name",
-               FT_STRING, BASE_NONE, 0, 0,
+            { "Listener", "kafka.listener_name",
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_broker_port,
@@ -8222,7 +8302,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_rack,
             { "Rack", "kafka.rack",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_broker_security_protocol_type,
@@ -8232,7 +8312,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_cluster_id,
             { "Cluster ID", "kafka.cluster_id",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_controller_id,
@@ -8252,7 +8332,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_group_leader_id,
             { "Leader ID", "kafka.group_leader_id",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_leader_id,
@@ -8342,22 +8422,22 @@ proto_register_kafka(void)
         },
         { &hf_kafka_group_state,
             { "State", "kafka.group_state",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_member_id,
             { "Consumer Group Member ID", "kafka.member_id",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_protocol_type,
             { "Protocol Type", "kafka.protocol_type",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_protocol_name,
             { "Protocol Name", "kafka.protocol_name",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_protocol_metadata,
@@ -8382,7 +8462,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_sasl_mechanism,
             { "SASL Mechanism", "kafka.sasl_mechanism",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_num_partitions,
@@ -8397,12 +8477,12 @@ proto_register_kafka(void)
         },
         { &hf_kafka_config_key,
             { "Key", "kafka.config_key",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_config_value,
             { "Value", "kafka.config_value",
-               FT_STRING, BASE_NONE, 0, 0,
+               FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_config_operation,
@@ -8422,7 +8502,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_forgotten_topic_name,
             { "Forgotten Topic Name", "kafka.forgotten_topic_name",
-                FT_STRING, BASE_NONE, 0, 0,
+                FT_STRING, STR_ASCII, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_forgotten_topic_partition,
@@ -8442,7 +8522,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_record_header_key,
             { "Header Key", "kafka.header_key",
-                FT_STRING, BASE_NONE, 0, 0,
+                FT_STRING, STR_UNICODE, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_record_header_value,
@@ -8452,12 +8532,12 @@ proto_register_kafka(void)
         },
         { &hf_kafka_record_headers_count,
             { "Headers Count", "kafka.headers_count",
-                FT_UINT64, BASE_DEC, 0, 0,
+                FT_INT64, BASE_DEC, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_record_length,
             { "Record Length", "kafka.record_length",
-                FT_UINT64, BASE_DEC, 0, 0,
+                FT_INT64, BASE_DEC, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_record_attributes,
@@ -8497,7 +8577,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_acl_resource_name,
             { "Resource Name", "kafka.acl_resource_name",
-                FT_STRING, BASE_NONE, 0, 0,
+                FT_STRING, STR_ASCII, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_acl_resource_pattern_type,
@@ -8507,12 +8587,12 @@ proto_register_kafka(void)
         },
         { &hf_kafka_acl_principal,
             { "Principal", "kafka.acl_principal",
-                FT_STRING, BASE_NONE, 0, 0,
+                FT_STRING, STR_ASCII, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_acl_host,
             { "Host", "kafka.acl_host",
-                FT_STRING, BASE_NONE, 0, 0,
+                FT_STRING, STR_ASCII, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_acl_operation,
@@ -8532,7 +8612,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_config_resource_name,
             { "Resource Name", "kafka.config_resource_name",
-                FT_STRING, BASE_NONE, 0, 0,
+                FT_STRING, STR_ASCII, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_config_include_synonyms,
@@ -8562,7 +8642,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_log_dir,
             { "Log Directory", "kafka.log_dir",
-                FT_STRING, BASE_NONE, 0, 0,
+                FT_STRING, STR_ASCII, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_segment_size,
@@ -8602,12 +8682,12 @@ proto_register_kafka(void)
         },
         { &hf_kafka_token_principal_type,
             { "Principal Type", "kafka.principal_type",
-                FT_STRING, BASE_NONE, 0, 0,
+                FT_STRING, STR_ASCII, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_token_principal_name,
             { "Principal Name", "kafka.principal_name",
-                FT_STRING, BASE_NONE, 0, 0,
+                FT_STRING, STR_ASCII, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_token_issue_timestamp,
@@ -8627,7 +8707,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_token_id,
             { "ID", "kafka.token_id",
-                FT_STRING, BASE_NONE, 0, 0,
+                FT_STRING, STR_ASCII, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_token_hmac,
