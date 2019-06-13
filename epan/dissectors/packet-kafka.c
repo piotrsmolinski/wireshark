@@ -2157,7 +2157,7 @@ dissect_kafka_offset_fetch_response_partition(tvbuff_t *tvb, packet_info *pinfo,
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    proto_item_append_text(ti, " (Partition-ID=%u, Offset=%" G_GINT64_MODIFIER "u)",
+    proto_item_append_text(ti, " (ID=%u, Offset=%" G_GINT64_MODIFIER "u)",
                            packet_values.partition_id, packet_values.offset);
 
     proto_item_set_len(ti, offset - start_offset);
@@ -2334,7 +2334,7 @@ dissect_kafka_metadata_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     }
 
     proto_item_set_len(ti, offset - start_offset);
-    proto_item_append_text(ti, " (Partition-ID=%u)", partition);
+    proto_item_append_text(ti, " (ID=%u)", partition);
 
     return offset;
 }
@@ -2846,7 +2846,7 @@ dissect_kafka_fetch_request_partition(tvbuff_t *tvb, packet_info *pinfo, proto_t
     proto_tree_add_item(subtree, hf_kafka_max_bytes, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
-    proto_item_append_text(ti, " (Partition-ID=%u, Offset=%" G_GINT64_MODIFIER "u)",
+    proto_item_append_text(ti, " (ID=%u, Offset=%" G_GINT64_MODIFIER "u)",
                            packet_values.partition_id, packet_values.offset);
 
     return offset;
@@ -3027,7 +3027,7 @@ dissect_kafka_fetch_response_partition(tvbuff_t *tvb, packet_info *pinfo, proto_
 
     proto_item_set_len(ti, offset - start_offset);
 
-    proto_item_append_text(ti, " (Partition-ID=%u, Offset=%" G_GINT64_MODIFIER "u)",
+    proto_item_append_text(ti, " (ID=%u, Offset=%" G_GINT64_MODIFIER "u)",
                            packet_values.partition_id, packet_values.offset);
 
     return offset;
@@ -3097,7 +3097,8 @@ dissect_kafka_produce_request_partition(tvbuff_t *tvb, packet_info *pinfo, proto
 
     offset = dissect_kafka_message_set(tvb, pinfo, subtree, offset, TRUE, KAFKA_MESSAGE_CODEC_NONE);
 
-    proto_item_append_text(ti, " (Partition-ID=%u)", packet_values.partition_id);
+    proto_item_append_text(ti, " (ID=%u)", packet_values.partition_id);
+    proto_item_set_end(ti, tvb, offset);
 
     return offset;
 }
@@ -3109,14 +3110,17 @@ dissect_kafka_produce_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     proto_item *ti;
     proto_tree *subtree;
     int         offset = start_offset;
+    int topic_off, topic_len;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_off, &topic_len);
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
                                  &dissect_kafka_produce_request_partition);
 
-    proto_item_set_len(ti, offset - start_offset);
+    proto_item_append_text(ti, " (Name=%s)",
+                           tvb_get_string_enc(wmem_packet_scope(), tvb, topic_off, topic_len, ENC_UTF_8|ENC_NA));
+    proto_item_set_end(ti, tvb, offset);
 
     return offset;
 }
@@ -3167,7 +3171,7 @@ dissect_kafka_produce_response_partition(tvbuff_t *tvb, packet_info *pinfo, prot
         offset += 8;
     }
 
-    proto_item_append_text(ti, " (Partition-ID=%u, Offset=%" G_GINT64_MODIFIER "u)",
+    proto_item_append_text(ti, " (ID=%u, Offset=%" G_GINT64_MODIFIER "u)",
                            packet_values.partition_id, packet_values.offset);
 
     return offset;
@@ -3233,7 +3237,7 @@ dissect_kafka_offsets_request_partition(tvbuff_t *tvb, packet_info *pinfo, proto
     }
 
     proto_item_set_len(ti, offset - start_offset);
-    proto_item_append_text(ti, " (Partition-ID=%u)", partition);
+    proto_item_append_text(ti, " (ID=%u)", partition);
 
     return offset;
 }
@@ -3304,7 +3308,7 @@ dissect_kafka_offsets_response_partition(tvbuff_t *tvb, packet_info *pinfo, prot
     }
 
     proto_item_set_len(ti, offset - start_offset);
-    proto_item_append_text(ti, " (Partition-ID=%u)", partition);
+    proto_item_append_text(ti, " (ID=%u)", partition);
 
     return offset;
 }
