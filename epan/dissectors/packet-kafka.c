@@ -353,11 +353,11 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_HEARTBEAT,                 "Heartbeat",
       0, 3 },
     { KAFKA_LEAVE_GROUP,               "LeaveGroup",
-      0, 2 },
+      0, 3 },
     { KAFKA_SYNC_GROUP,                "SyncGroup",
       0, 3 },
     { KAFKA_DESCRIBE_GROUPS,           "DescribeGroups",
-      0, 3 },
+      0, 4 },
     { KAFKA_LIST_GROUPS,               "ListGroups",
       0, 2 },
     { KAFKA_SASL_HANDSHAKE,            "SaslHandshake",
@@ -4164,7 +4164,7 @@ dissect_kafka_join_group_response_member(tvbuff_t *tvb, packet_info *pinfo, prot
     offset = dissect_kafka_bytes(subtree, hf_kafka_member_metadata, tvb, pinfo, offset, NULL, NULL);
 
     proto_item_set_end(subti, tvb, offset);
-    proto_item_append_text(subti, " (Member-ID=%s)",
+    proto_item_append_text(subti, " (Member=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
                                               member_start, member_len, ENC_UTF_8|ENC_NA));
 
@@ -4268,28 +4268,114 @@ dissect_kafka_heartbeat_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
 /* LEAVE_GROUP REQUEST/RESPONSE */
 
 static int
-dissect_kafka_leave_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+dissect_kafka_leave_group_request_member(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                   kafka_api_version_t api_version _U_)
+{
+    
+    proto_item *subti;
+    proto_tree *subtree;
+    int member_start, member_len;
+    int instance_start, instance_len;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_member, &subti, "Member");
+    
+    /* member_id */
+    offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
+                                  &member_start, &member_len);
+    
+    /* instance_id */
+    offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
+                                  &instance_start, &instance_len);
+
+    proto_item_set_end(subti, tvb, offset);
+    proto_item_append_text(subti, " (Member=%s, Group-Instance=%s)",
+                           tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                              member_start, member_len, ENC_UTF_8|ENC_NA),
+                           tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                              instance_start, instance_len, ENC_UTF_8|ENC_NA)
+                           );
+    
+    return offset;
+
+}
+
+static int
+dissect_kafka_leave_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                  kafka_api_version_t api_version)
 {
     int group_start, group_len;
     int member_start, member_len;
+    proto_item *subti;
+    proto_tree *subtree;
 
     /* group_id */
     offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
                                   &group_start, &group_len);
 
-    /* member_id */
-    offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
-                                  &member_start, &member_len);
+    if ( api_version>=0 && api_version<=2 ) {
 
-    col_append_fstr(pinfo->cinfo, COL_INFO,
-                    " (Group=%s, Member=%s)",
-                    tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                       group_start, group_len, ENC_UTF_8|ENC_NA),
-                    tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                       member_start, member_len, ENC_UTF_8|ENC_NA));
+        /* member_id */
+        offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
+                                      &member_start, &member_len);
+
+        col_append_fstr(pinfo->cinfo, COL_INFO,
+                        " (Group=%s, Member=%s)",
+                        tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                           group_start, group_len, ENC_UTF_8|ENC_NA),
+                        tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                           member_start, member_len, ENC_UTF_8|ENC_NA));
+        
+    } else if ( api_version>=3 ) {
+
+        // KIP-345
+        subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_members, &subti, "Members");
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_leave_group_request_member);
+        proto_item_set_end(subti, tvb, offset);
+
+        col_append_fstr(pinfo->cinfo, COL_INFO,
+                        " (Group=%s)",
+                        tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                           group_start, group_len, ENC_UTF_8|ENC_NA));
+        
+    }
 
     return offset;
+}
+
+static int
+dissect_kafka_leave_group_response_member(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                  kafka_api_version_t api_version _U_)
+{
+    
+    proto_item *subti;
+    proto_tree *subtree;
+    int member_start, member_len;
+    int instance_start, instance_len;
+    
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_member, &subti, "Member");
+    
+    /* member_id */
+    offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
+                                  &member_start, &member_len);
+    
+    /* instance_id */
+    offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
+                                  &instance_start, &instance_len);
+
+    /* error_code */
+    offset = dissect_kafka_error(tvb, pinfo, tree, offset);
+
+    proto_item_set_end(subti, tvb, offset);
+    proto_item_append_text(subti, " (Member=%s, Group-Instance=%s)",
+                           tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                              member_start, member_len, ENC_UTF_8|ENC_NA),
+                           tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                              instance_start, instance_len, ENC_UTF_8|ENC_NA)
+                           );
+
+    return offset;
+    
 }
 
 static int
@@ -4297,12 +4383,26 @@ dissect_kafka_leave_group_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree
                                    kafka_api_version_t api_version _U_)
 {
 
+    proto_item *subti;
+    proto_tree *subtree;
+
     if (api_version >= 1) {
         offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
     /* error_code */
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
+    
+    if (api_version >= 3) {
+
+        // KIP-345
+        subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_members, &subti, "Members");
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_leave_group_response_member);
+        proto_item_set_end(subti, tvb, offset);
+
+    }
+
 
     return offset;
 }
@@ -4432,6 +4532,7 @@ dissect_kafka_describe_groups_response_member(tvbuff_t *tvb, packet_info *pinfo,
     proto_item *subti;
     proto_tree *subtree;
     int member_start, member_len;
+    int instance_start, instance_len;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_member, &subti, "Member");
 
@@ -4439,6 +4540,12 @@ dissect_kafka_describe_groups_response_member(tvbuff_t *tvb, packet_info *pinfo,
     offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
                                   &member_start, &member_len);
 
+    if (api_version >= 4) {
+        /* instance_id */
+        offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
+                                      &instance_start, &instance_len);
+    }
+    
     /* client_id */
     offset = dissect_kafka_string(subtree, hf_kafka_client_id, tvb, pinfo, offset, NULL, NULL);
 
@@ -4452,9 +4559,18 @@ dissect_kafka_describe_groups_response_member(tvbuff_t *tvb, packet_info *pinfo,
     offset = dissect_kafka_bytes(subtree, hf_kafka_member_assignment, tvb, pinfo, offset, NULL, NULL);
 
     proto_item_set_end(subti, tvb, offset);
-    proto_item_append_text(subti, " (Member-ID=%s)",
-                           tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              member_start, member_len, ENC_UTF_8|ENC_NA));
+    
+    if (api_version < 4) {
+        proto_item_append_text(subti, " (Member=%s)",
+                               tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                                  member_start, member_len, ENC_UTF_8|ENC_NA));
+    } else {
+        proto_item_append_text(subti, " (Member=%s, Instance=%s)",
+                               tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                                  member_start, member_len, ENC_UTF_8|ENC_NA),
+                               tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                                  instance_start, instance_len, ENC_UTF_8|ENC_NA));
+    }
     return offset;
 }
 
@@ -4497,7 +4613,7 @@ dissect_kafka_describe_groups_response_group(tvbuff_t *tvb, packet_info *pinfo, 
     }
 
     proto_item_set_end(subti, tvb, offset);
-    proto_item_append_text(subti, " (Group-ID=%s)",
+    proto_item_append_text(subti, " (Group=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
                                               group_start, group_len, ENC_UTF_8|ENC_NA));
 
