@@ -430,6 +430,10 @@ static const kafka_api_info_t kafka_apis[] = {
  */
 static value_string kafka_api_names[array_length(kafka_apis) + 1];
 
+/*
+ * For the current list of error codes check here:
+ * https://github.com/apache/kafka/blob/trunk/clients/src/main/java/org/apache/kafka/common/protocol/Errors.java
+ */
 static const value_string kafka_errors[] = {
     { -1, "Unexpected Server Error" },
     { 0, "No Error" },
@@ -513,6 +517,9 @@ static const value_string kafka_errors[] = {
     { 80, "Preferred Leader not Available" },
     { 81, "Group Max Size Reached" },
     { 82, "Fenced Instance ID"},
+    { 83, "Eligible topic partition leaders are not available"},
+    { 84, "Leader election not needed for topic partition"},
+    { 85, "No partition reassignment is in progress"},
     { 0, NULL }
 };
 
