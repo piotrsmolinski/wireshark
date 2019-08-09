@@ -320,6 +320,11 @@ typedef struct _kafka_api_info_t {
 #define KAFKA_DELETE_GROUPS             42
 #define KAFKA_ELECT_PREFERRED_LEADERS   43
 #define KAFKA_INC_ALTER_CONFIGS         44
+
+/*
+ * Check for message changes here:
+ * https://github.com/apache/kafka/tree/trunk/clients/src/main/resources/common/message
+ */
 static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_PRODUCE,                   "Produce",
       0, 7 },
