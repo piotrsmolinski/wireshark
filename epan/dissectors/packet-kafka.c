@@ -191,6 +191,7 @@ static int hf_kafka_include_group_authorized_ops = -1;
 static int hf_kafka_cluster_authorized_ops = -1;
 static int hf_kafka_topic_authorized_ops = -1;
 static int hf_kafka_group_authorized_ops = -1;
+static int hf_kafka_election_type = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
@@ -318,7 +319,7 @@ typedef struct _kafka_api_info_t {
 #define KAFKA_EXPIRE_DELEGATION_TOKEN       40
 #define KAFKA_DESCRIBE_DELEGATION_TOKEN     41
 #define KAFKA_DELETE_GROUPS                 42
-#define KAFKA_ELECT_PREFERRED_LEADERS       43
+#define KAFKA_ELECT_LEADERS                 43
 #define KAFKA_INC_ALTER_CONFIGS             44
 #define KAFKA_ALTER_PARTITION_REASSIGNMENTS 45
 #define KAFKA_LIST_PARTITION_REASSIGNMENTS  46
@@ -414,8 +415,8 @@ static const kafka_api_info_t kafka_apis[] = {
       0, 1 },
     { KAFKA_DELETE_GROUPS,                 "DeleteGroups",
       0, 1 },
-    { KAFKA_ELECT_PREFERRED_LEADERS,       "ElectPreferredLeaders",
-      0, 0 },
+    { KAFKA_ELECT_LEADERS,                 "ElectLeaders",
+      0, 1 },
     { KAFKA_INC_ALTER_CONFIGS,             "IncrementalAlterConfigs",
       0, 0 },
     { KAFKA_ALTER_PARTITION_REASSIGNMENTS, "AlterPartitionReassignments",
@@ -657,6 +658,12 @@ static const value_string config_operations[] = {
     { 1, "Delete" },
     { 2, "Append" },
     { 3, "Substract" },
+    { 0, NULL }
+};
+
+static const value_string election_types[] = {
+    { 0, "Preferred" },
+    { 1, "Unclean" },
     { 0, NULL }
 };
 
@@ -7388,10 +7395,10 @@ dissect_kafka_delete_groups_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
     return offset;
 }
 
-/* ELECT_PREFERRED_LEADERS REQUEST/RESPONSE */
+/* ELECT_LEADERS REQUEST/RESPONSE */
 
 static int
-dissect_kafka_elect_preferred_leaders_request_partition(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+dissect_kafka_elect_leaders_request_partition(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
                                           int offset, kafka_api_version_t api_version _U_)
 {
     
@@ -7402,7 +7409,7 @@ dissect_kafka_elect_preferred_leaders_request_partition(tvbuff_t *tvb, packet_in
 }
 
 static int
-dissect_kafka_elect_preferred_leaders_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+dissect_kafka_elect_leaders_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                     kafka_api_version_t api_version)
 {
     
@@ -7418,7 +7425,7 @@ dissect_kafka_elect_preferred_leaders_request_topic(tvbuff_t *tvb, packet_info *
                                      &subsubti, "Partitions");
     
     offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
-                                 &dissect_kafka_elect_preferred_leaders_request_partition);
+                                 &dissect_kafka_elect_leaders_request_partition);
     
     proto_item_set_end(subsubti, tvb, offset);
     proto_item_set_end(subti, tvb, offset);
@@ -7427,19 +7434,24 @@ dissect_kafka_elect_preferred_leaders_request_topic(tvbuff_t *tvb, packet_info *
 }
 
 static int
-dissect_kafka_elect_preferred_leaders_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+dissect_kafka_elect_leaders_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                     kafka_api_version_t api_version)
 {
     
     proto_item *subti;
     proto_tree *subtree;
     
+    if (api_version >= 1) {
+        proto_tree_add_item(tree, hf_kafka_election_type, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 1;
+    }
+    
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
     
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                 &dissect_kafka_elect_preferred_leaders_request_topic);
+                                 &dissect_kafka_elect_leaders_request_topic);
     
     proto_item_set_end(subti, tvb, offset);
     
@@ -7450,7 +7462,7 @@ dissect_kafka_elect_preferred_leaders_request(tvbuff_t *tvb, packet_info *pinfo,
 }
 
 static int
-dissect_kafka_elect_preferred_leaders_response_partition(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+dissect_kafka_elect_leaders_response_partition(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
                                                   int offset, kafka_api_version_t api_version _U_)
 {
     
@@ -7477,7 +7489,7 @@ dissect_kafka_elect_preferred_leaders_response_partition(tvbuff_t *tvb, packet_i
 }
 
 static int
-dissect_kafka_elect_preferred_leaders_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+dissect_kafka_elect_leaders_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                               kafka_api_version_t api_version)
 {
     
@@ -7493,7 +7505,7 @@ dissect_kafka_elect_preferred_leaders_response_topic(tvbuff_t *tvb, packet_info 
                                         &subsubti, "Partitions");
     
     offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
-                                 &dissect_kafka_elect_preferred_leaders_response_partition);
+                                 &dissect_kafka_elect_leaders_response_partition);
     
     proto_item_set_end(subsubti, tvb, offset);
     proto_item_set_end(subti, tvb, offset);
@@ -7502,7 +7514,7 @@ dissect_kafka_elect_preferred_leaders_response_topic(tvbuff_t *tvb, packet_info 
 }
 
 static int
-dissect_kafka_elect_preferred_leaders_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+dissect_kafka_elect_leaders_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                         kafka_api_version_t api_version)
 {
     
@@ -7511,12 +7523,16 @@ dissect_kafka_elect_preferred_leaders_response(tvbuff_t *tvb, packet_info *pinfo
     
     offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     
+    if (api_version >= 1) {
+        offset = dissect_kafka_error(tvb, pinfo, tree, offset);
+    }
+    
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
     
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                 &dissect_kafka_elect_preferred_leaders_response_topic);
+                                 &dissect_kafka_elect_leaders_response_topic);
     
     proto_item_set_end(subti, tvb, offset);
     
@@ -8168,8 +8184,8 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_DELETE_GROUPS:
                 /*offset =*/ dissect_kafka_delete_groups_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
-            case KAFKA_ELECT_PREFERRED_LEADERS:
-                /*offset =*/ dissect_kafka_elect_preferred_leaders_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+            case KAFKA_ELECT_LEADERS:
+                /*offset =*/ dissect_kafka_elect_leaders_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_INC_ALTER_CONFIGS:
                 /*offset =*/ dissect_kafka_inc_alter_configs_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
@@ -8370,8 +8386,8 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_DELETE_GROUPS:
                 /*offset =*/ dissect_kafka_delete_groups_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
-            case KAFKA_ELECT_PREFERRED_LEADERS:
-                /*offset =*/ dissect_kafka_elect_preferred_leaders_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+            case KAFKA_ELECT_LEADERS:
+                /*offset =*/ dissect_kafka_elect_leaders_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_INC_ALTER_CONFIGS:
                 /*offset =*/ dissect_kafka_inc_alter_configs_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
@@ -9216,6 +9232,11 @@ proto_register_kafka(void)
         { &hf_kafka_group_authorized_ops,
             { "Group Authorized Operations", "kafka.group_authorized_ops",
                 FT_UINT32, BASE_HEX, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_election_type,
+            { "ElectionType", "kafka.election_type",
+                FT_INT8, BASE_DEC, VALS(election_types), 0,
                 NULL, HFILL }
         },
     };
