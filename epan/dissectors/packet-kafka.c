@@ -368,7 +368,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_API_VERSIONS,                  "ApiVersions",
       0, 2 },
     { KAFKA_CREATE_TOPICS,                 "CreateTopics",
-      0, 3 },
+      0, 4 },
     { KAFKA_DELETE_TOPICS,                 "DeleteTopics",
       0, 3 },
     { KAFKA_DELETE_RECORDS,                "DeleteRecords",
