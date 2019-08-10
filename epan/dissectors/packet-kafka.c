@@ -1564,6 +1564,7 @@ dissect_kafka_record_headers(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *
     tvb_read_kafka_varint32(tvb, offset, &count, NULL);
     offset = dissect_kafka_varint(tvb, pinfo, subtree, hf_kafka_record_headers_count, offset);
 
+    // null array 
     DISSECTOR_ASSERT(count>=-1);
     for (i=0;i<count;i++) {
         offset = dissect_kafka_record_headers_header(tvb, pinfo, subtree, offset);
@@ -2341,7 +2342,7 @@ dissect_kafka_metadata_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     proto_tree_add_item(subtree, hf_kafka_leader_id, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
-    if (api_version>=7) {
+    if (api_version >= 7) {
         proto_tree_add_item(subtree, hf_kafka_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
     }
@@ -2356,7 +2357,7 @@ dissect_kafka_metadata_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_isr);
     proto_item_set_len(subti, offset - sub_start_offset);
 
-    if (api_version>=5) {
+    if (api_version >= 5) {
         sub_start_offset = offset;
         subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_offline, &subti, "Offline Replicas");
         offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_offline);
@@ -2544,7 +2545,7 @@ dissect_kafka_leader_and_isr_request_partition_state(tvbuff_t *tvb, packet_info 
 
     proto_item_set_end(subti, tvb, offset);
 
-    if (api_version<2) {
+    if (api_version < 2) {
         proto_item_append_text(subti, " (Topic=%s, Partition-ID=%u)",
                                tvb_get_string_enc(wmem_packet_scope(), tvb,
                                                   topic_start, topic_len, ENC_UTF_8|ENC_NA),
@@ -4350,7 +4351,7 @@ dissect_kafka_leave_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
     offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
                                   &group_start, &group_len);
 
-    if ( api_version>=0 && api_version<=2 ) {
+    if (api_version >= 0 && api_version <= 2) {
 
         /* member_id */
         offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
@@ -4363,7 +4364,7 @@ dissect_kafka_leave_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
                         tvb_get_string_enc(wmem_packet_scope(), tvb,
                                            member_start, member_len, ENC_UTF_8|ENC_NA));
 
-    } else if ( api_version>=3 ) {
+    } else if (api_version >= 3) {
 
         // KIP-345
         subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_members, &subti, "Members");
