@@ -1203,8 +1203,7 @@ dissect_kafka_string_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree
 
     DISSECTOR_ASSERT(val>=0);
 
-    proto_tree_add_string(tree, hf_item, tvb, offset+len, val,
-        tvb_get_string_enc(wmem_packet_scope(), tvb, offset+len, val, ENC_UTF_8|ENC_NA));
+    proto_tree_add_item(tree, hf_item, tvb, offset+len, val, ENC_UTF_8|ENC_NA);
 
     if (p_string_offset != NULL) {
         *p_string_offset = offset+len;
