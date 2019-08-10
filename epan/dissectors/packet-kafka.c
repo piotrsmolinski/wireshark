@@ -910,7 +910,7 @@ dissect_kafka_array_ref(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int
         offset = func(tvb, pinfo, tree, offset, api_version);
     }
 
-    if (p_count!=NULL) {
+    if (p_count != NULL) {
         *p_count = count;
     }
 
@@ -1206,10 +1206,10 @@ dissect_kafka_string_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree
     proto_tree_add_string(tree, hf_item, tvb, offset+len, val,
         tvb_get_string_enc(wmem_packet_scope(), tvb, offset+len, val, ENC_UTF_8|ENC_NA));
 
-    if (p_string_offset!=NULL) {
+    if (p_string_offset != NULL) {
         *p_string_offset = offset+len;
     }
-    if (p_string_length!=NULL) {
+    if (p_string_length != NULL) {
         *p_string_length = val;
     }
 
@@ -1249,10 +1249,10 @@ dissect_kafka_bytes_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     proto_tree_add_bytes_with_length(tree, hf_item, tvb, offset+len, val,
         tvb_memdup(wmem_packet_scope(), tvb, offset+len, val), val);
 
-    if (p_bytes_offset!=NULL) {
+    if (p_bytes_offset != NULL) {
         *p_bytes_offset = offset+len;
     }
-    if (p_bytes_length!=NULL) {
+    if (p_bytes_length != NULL) {
         *p_bytes_length = len;
     }
 
@@ -1804,7 +1804,7 @@ decompress_zstd(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length, t
         }
         tvb_composite_append(*decompressed_tvb,
                              tvb_new_child_real_data(tvb, output.dst, (int)output.pos, (int)output.pos));
-    } while (size!=0);
+    } while (size != 0);
 
     ZSTD_freeDStream(zds);
 
