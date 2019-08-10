@@ -1523,7 +1523,7 @@ dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
             proto_item_append_text(message_ti, " (%u bytes)", bytes_length);
     }
 
-    // proto_item_set_len(message_ti, offset - start_offset);
+    proto_item_set_len(message_ti, offset - start_offset);
 
     return offset;
 }
