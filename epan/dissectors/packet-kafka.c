@@ -274,7 +274,6 @@ typedef struct _kafka_api_info_t {
 } kafka_api_info_t;
 
 #define KAFKA_TCP_DEFAULT_RANGE     "9092"
-#define KAFKA_TLS_DEFAULT_RANGE     "9093"
 
 #define KAFKA_PRODUCE                        0
 #define KAFKA_FETCH                          1
@@ -673,11 +672,6 @@ static const value_string election_types[] = {
     { 1, "Unclean" },
     { 0, NULL }
 };
-
-/* List/range of TCP ports to register */
-static range_t *global_kafka_tls_range = NULL;
-static range_t *current_kafka_tcp_range = NULL;
-static range_t *current_kafka_tls_range = NULL;
 
 /* Whether to show the lengths of string and byte fields in the protocol tree.
  * It can be useful to see these, but they do clutter up the display, so disable
@@ -8423,28 +8417,6 @@ dissect_kafka_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 }
 
 static void
-range_del_kafka_tls_callback(guint32 port, gpointer ptr _U_) {
-    ssl_dissector_delete(port, kafka_handle);
-}
-
-static void
-range_add_kafka_tls_callback(guint32 port, gpointer ptr _U_) {
-    ssl_dissector_add(port, kafka_handle);
-}
-
-static void
-apply_kafka_prefs(void) {
-
-    current_kafka_tcp_range = prefs_get_range_value("kafka", "tcp.port");
-
-    range_foreach(current_kafka_tls_range, range_del_kafka_tls_callback, NULL);
-    wmem_free(wmem_epan_scope(), current_kafka_tls_range);
-    current_kafka_tls_range = range_copy(wmem_epan_scope(), global_kafka_tls_range);
-    range_foreach(current_kafka_tls_range, range_add_kafka_tls_callback, NULL);
-
-}
-
-static void
 compute_kafka_api_names(void)
 {
     guint i;
@@ -9336,7 +9308,7 @@ proto_register_kafka(void)
     expert_kafka = expert_register_protocol(proto_kafka);
     expert_register_field_array(expert_kafka, ei, array_length(ei));
 
-    kafka_module = prefs_register_protocol(proto_kafka, apply_kafka_prefs);
+    kafka_module = prefs_register_protocol(proto_kafka, NULL);
     kafka_handle = register_dissector("kafka", dissect_kafka_tcp, proto_kafka);
 
     prefs_register_bool_preference(kafka_module, "show_string_bytes_lengths",
@@ -9344,20 +9316,13 @@ proto_register_kafka(void)
         "",
         &kafka_show_string_bytes_lengths);
 
-    range_convert_str(wmem_epan_scope(), &global_kafka_tls_range, KAFKA_TLS_DEFAULT_RANGE, 65535);
-    prefs_register_range_preference(kafka_module, "tls.port", "SSL/TLS Ports",
-                                    "SSL/TLS Ports range",
-                                    &global_kafka_tls_range, 65535);
-
 }
 
 void
 proto_reg_handoff_kafka(void)
 {
-
     dissector_add_uint_range_with_preference("tcp.port", KAFKA_TCP_DEFAULT_RANGE, kafka_handle);
-
-    apply_kafka_prefs();
+    ssl_dissector_add(0, kafka_handle);
 }
 
 /*
