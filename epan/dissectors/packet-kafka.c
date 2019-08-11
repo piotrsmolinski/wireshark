@@ -1077,7 +1077,6 @@ tvb_read_kafka_varint32(tvbuff_t *tvb, int offset, gint32 *p_val, int *p_len)
     }
 
     return offset+i;
-
 }
 
 /*
@@ -1123,7 +1122,6 @@ tvb_read_kafka_varint64(tvbuff_t *tvb, int offset, gint64 *p_val, int *p_len)
     }
 
     return offset+i;
-
 }
 
 static int
@@ -1207,7 +1205,6 @@ dissect_kafka_string_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree
     }
 
     return offset+len+val;
-
 }
 
 /*
@@ -1250,7 +1247,6 @@ dissect_kafka_bytes_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
     }
 
     return offset+len+val;
-
 }
 
 /* Calculate and show the reduction in transmitted size due to compression */
@@ -1541,8 +1537,8 @@ dissect_kafka_record_headers_header(tvbuff_t *tvb, packet_info *pinfo _U_, proto
     proto_item_set_end(header_ti, tvb, offset);
 
     return offset;
-
 }
+
 static int
 dissect_kafka_record_headers(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int offset)
 {
@@ -1567,7 +1563,6 @@ dissect_kafka_record_headers(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *
     proto_item_set_end(record_headers_ti, tvb, offset);
 
     return offset;
-
 }
 
 static int
@@ -1607,7 +1602,6 @@ dissect_kafka_record(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, in
     proto_item_set_end(record_ti, tvb, offset);
 
     return end_offset;
-
 }
 
 static int
@@ -2578,7 +2572,6 @@ dissect_kafka_leader_and_isr_request_topic_state(tvbuff_t *tvb, packet_info *pin
                                               topic_start, topic_len, ENC_UTF_8|ENC_NA));
 
     return offset;
-
 }
 
 static int
@@ -4329,7 +4322,6 @@ dissect_kafka_leave_group_request_member(tvbuff_t *tvb, packet_info *pinfo, prot
                            );
 
     return offset;
-
 }
 
 static int
@@ -4408,7 +4400,6 @@ dissect_kafka_leave_group_response_member(tvbuff_t *tvb, packet_info *pinfo, pro
                            );
 
     return offset;
-
 }
 
 static int
@@ -6286,7 +6277,6 @@ dissect_kafka_delete_acls_response_match(tvbuff_t *tvb, packet_info *pinfo _U_, 
     proto_item_set_end(subti, tvb, offset);
 
     return offset;
-
 }
 
 static int
@@ -6418,7 +6408,6 @@ dissect_kafka_describe_configs_response_synonym(tvbuff_t *tvb, packet_info *pinf
                                               key_start, key_len, ENC_UTF_8|ENC_NA));
 
     return offset;
-
 }
 
 static int
@@ -6465,7 +6454,6 @@ dissect_kafka_describe_configs_response_entry(tvbuff_t *tvb, packet_info *pinfo 
                                               key_start, key_len, ENC_UTF_8|ENC_NA));
 
     return offset;
-
 }
 
 static int
@@ -6756,7 +6744,6 @@ dissect_kafka_alter_replica_log_dirs_response_topic(tvbuff_t *tvb, packet_info *
                                               topic_start, topic_len, ENC_UTF_8|ENC_NA));
 
     return offset;
-
 }
 
 static int
@@ -6891,7 +6878,6 @@ dissect_kafka_describe_log_dirs_response_topic(tvbuff_t *tvb, packet_info *pinfo
                                               topic_start, topic_len, ENC_UTF_8|ENC_NA));
 
     return offset;
-
 }
 
 static int
@@ -6920,7 +6906,6 @@ dissect_kafka_describe_log_dirs_response_log_dir(tvbuff_t *tvb, packet_info *pin
                                               dir_start, dir_len, ENC_UTF_8|ENC_NA));
 
     return offset;
-
 }
 
 static int
@@ -7033,7 +7018,6 @@ dissect_kafka_create_partitions_response_topic(tvbuff_t *tvb, packet_info *pinfo
                                               topic_start, topic_len, ENC_UTF_8|ENC_NA));
 
     return offset;
-
 }
 
 static int
@@ -7812,7 +7796,6 @@ dissect_kafka_list_partition_reassignments_request_partition(tvbuff_t *tvb, pack
     offset += 4;
 
     return offset;
-
 }
 
 static int
@@ -7867,7 +7850,6 @@ dissect_kafka_list_partition_reassignments_response_replica(tvbuff_t *tvb, packe
     offset += 4;
 
     return offset;
-
 }
 
 static int
