@@ -1613,22 +1613,22 @@ decompress_none(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length _U
 }
 
 static int
-decompress_gzip(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length, tvbuff_t **decompressed_tvb, int *decompressed_offset)
+decompress_gzip(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuff_t **decompressed_tvb, int *decompressed_offset)
 {
     *decompressed_tvb = tvb_child_uncompress(tvb, tvb, offset, length);
     *decompressed_offset = 0;
     if (*decompressed_tvb) {
         return 1;
     } else {
+        col_append_fstr(pinfo->cinfo, COL_INFO, " [gzip decompression failed] ");
         return 0;
     }
 }
 
-static int
-decompress_lz4(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length, tvbuff_t **decompressed_tvb, int *decompressed_offset)
-{
-
 #ifdef HAVE_LZ4FRAME_H
+static int
+decompress_lz4(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuff_t **decompressed_tvb, int *decompressed_offset)
+{
     LZ4F_decompressionContext_t lz4_ctxt;
     LZ4F_frameInfo_t lz4_info;
     LZ4F_errorCode_t ret;
@@ -1689,27 +1689,33 @@ decompress_lz4(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length, tv
                           &data[src_offset], &src_size, NULL);
     LZ4F_freeDecompressionContext(lz4_ctxt);
 
-    if (ret == 0) {
-        size_t uncompressed_size = dst_size;
-
-        /* Add as separate data tab */
-        *decompressed_tvb = tvb_new_child_real_data(tvb, decompressed_buffer,
-                                          (guint32)uncompressed_size, (guint32)uncompressed_size);
-        *decompressed_offset = 0;
-        return 1;
+    if (ret != 0) {
+        goto fail;
     }
 
+    size_t uncompressed_size = dst_size;
+    /* Add as separate data tab */
+    *decompressed_tvb = tvb_new_child_real_data(tvb, decompressed_buffer,
+                                      (guint32)uncompressed_size, (guint32)uncompressed_size);
+    *decompressed_offset = 0;
+    return 1;
 fail:
+    col_append_fstr(pinfo->cinfo, COL_INFO, " [lz4 decompression failed]");
     return 0;
-#else
-    return 0;
-#endif /* HAVE_LZ4FRAME_H */
 }
-
+#else
 static int
-decompress_snappy(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length, tvbuff_t **decompressed_tvb, int *decompressed_offset)
+decompress_lz4(tvbuff_t *tvb _U_, packet_info *pinfo, int offset _U_, int length _U_, tvbuff_t **decompressed_tvb _U_, int *decompressed_offset _U_)
 {
+    col_append_fstr(pinfo->cinfo, COL_INFO, " [lz4 decompression unsupported]");
+    return 0;
+}
+#endif /* HAVE_LZ4FRAME_H */
+
 #ifdef HAVE_SNAPPY
+static int
+decompress_snappy(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuff_t **decompressed_tvb, int *decompressed_offset)
+{
     guint8 *data = (guint8*)tvb_memdup(wmem_packet_scope(), tvb, offset, length);
     size_t uncompressed_size;
     snappy_status ret = SNAPPY_INVALID_INPUT;
@@ -1721,59 +1727,64 @@ decompress_snappy(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length,
 
         *decompressed_tvb = tvb_new_composite();
         *decompressed_offset = 0;
+
         while (pos < length) {
             chunk_size = tvb_get_ntohl(tvb, offset+pos);
             pos += 4;
             ret = snappy_uncompressed_length(&data[pos], chunk_size, &uncompressed_size);
-            if (ret == SNAPPY_OK) {
-                guint8 *decompressed_buffer = (guint8*)wmem_alloc(pinfo->pool, uncompressed_size);
-
-                ret = snappy_uncompress(&data[pos], chunk_size, decompressed_buffer, &uncompressed_size);
-                if (ret == SNAPPY_OK) {
-                    tvb_composite_append(*decompressed_tvb,
-                                         tvb_new_child_real_data(tvb, decompressed_buffer,
-                                                                 (guint32)uncompressed_size, (guint32)uncompressed_size));
-                } else {
-                    wmem_free(pinfo->pool, decompressed_buffer);
-                    break;
-                }
+            if (ret != SNAPPY_OK) {
+                goto fail;
             }
+            guint8 *decompressed_buffer = (guint8*)wmem_alloc(pinfo->pool, uncompressed_size);
+            ret = snappy_uncompress(&data[pos], chunk_size, decompressed_buffer, &uncompressed_size);
+            if (ret != SNAPPY_OK) {
+                goto fail;
+            }
+            tvb_composite_append(*decompressed_tvb,
+                      tvb_new_child_real_data(tvb, decompressed_buffer, (guint32)uncompressed_size, (guint32)uncompressed_size));
             pos += chunk_size;
         }
+
         tvb_composite_finalize(*decompressed_tvb);
 
     } else {
 
         /* unframed format */
         ret = snappy_uncompressed_length(data, length, &uncompressed_size);
-        if (ret == SNAPPY_OK) {
-            guint8 *decompressed_buffer = (guint8*)wmem_alloc(pinfo->pool, uncompressed_size);
-
-            ret = snappy_uncompress(data, length, decompressed_buffer, &uncompressed_size);
-            if (ret == SNAPPY_OK) {
-                *decompressed_tvb = tvb_new_child_real_data(tvb, decompressed_buffer,
-                                                  (guint32)uncompressed_size, (guint32)uncompressed_size);
-                *decompressed_offset = 0;
-            } else {
-                wmem_free(pinfo->pool, decompressed_buffer);
-            }
+        if (ret != SNAPPY_OK) {
+            goto fail;
         }
+
+        guint8 *decompressed_buffer = (guint8*)wmem_alloc(pinfo->pool, uncompressed_size);
+
+        ret = snappy_uncompress(data, length, decompressed_buffer, &uncompressed_size);
+        if (ret != SNAPPY_OK) {
+            goto fail;
+        }
+
+        *decompressed_tvb = tvb_new_child_real_data(tvb, decompressed_buffer, (guint32)uncompressed_size, (guint32)uncompressed_size);
+        *decompressed_offset = 0;
+
     }
-    if (ret == SNAPPY_OK) {
-        return 1;
-    } else {
-        return 0;
-    }
-#else
+
+    return 1;
+fail:
+    col_append_fstr(pinfo->cinfo, COL_INFO, " [snappy decompression failed]");
     return 0;
-#endif
 }
-
-
+#else
 static int
-decompress_zstd(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length, tvbuff_t **decompressed_tvb, int *decompressed_offset)
+decompress_snappy(tvbuff_t *tvb _U_, packet_info *pinfo, int offset _U_, int length _U_, tvbuff_t **decompressed_tvb _U_, int *decompressed_offset _U_)
 {
+    col_append_fstr(pinfo->cinfo, COL_INFO, " [snappy decompression unsupported]");
+    return 0;
+}
+#endif /* HAVE_SNAPPY */
+
 #ifdef HAVE_ZSTD
+static int
+decompress_zstd(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuff_t **decompressed_tvb, int *decompressed_offset)
+{
 
     ZSTD_inBuffer input = { tvb_memdup(wmem_packet_scope(), tvb, offset, length), length, 0 };
 
@@ -1797,17 +1808,23 @@ decompress_zstd(tvbuff_t *tvb, packet_info *pinfo _U_, int offset, int length, t
     ZSTD_freeDStream(zds);
 
     if (ZSTD_isError(size)) {
-        return 0;
-    } else {
-        tvb_composite_finalize(*decompressed_tvb);
-        return 1;
-    }
+        goto fail;
+    } 
 
-#else
-    col_append_fstr(pinfo->cinfo, COL_INFO, " [zstd compression unsupported] ");
+    tvb_composite_finalize(*decompressed_tvb);
+    return 1;
+fail:
+    col_append_fstr(pinfo->cinfo, COL_INFO, " [zstd decompression failed]");
     return 0;
-#endif
 }
+#else
+static int
+decompress_zstd(tvbuff_t *tvb _U_, packet_info *pinfo, int offset _U_, int length _U_, tvbuff_t **decompressed_tvb _U_, int *decompressed_offset _U_)
+{
+    col_append_fstr(pinfo->cinfo, COL_INFO, " [zstd compression unsupported]");
+    return 0;
+}
+#endif /* HAVE_ZSTD */
 
 static int
 decompress(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, int codec, tvbuff_t **decompressed_tvb, int *decompressed_offset)
@@ -1824,6 +1841,7 @@ decompress(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, int codec,
         case KAFKA_MESSAGE_CODEC_NONE:
             return decompress_none(tvb, pinfo, offset, length, decompressed_tvb, decompressed_offset);
         default:
+            col_append_fstr(pinfo->cinfo, COL_INFO, " [unsupported compression type]");
             return 0;
     }
 }
