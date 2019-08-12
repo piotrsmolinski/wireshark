@@ -851,7 +851,7 @@ static void
 kafka_check_supported_api_key(packet_info *pinfo, proto_item *ti, kafka_query_response_t *matcher)
 {
     if (kafka_get_api_info(matcher->api_key) == NULL) {
-        col_append_fstr(pinfo->cinfo, COL_INFO, " [Unknown API key]");
+        col_append_str(pinfo->cinfo, COL_INFO, " [Unknown API key]");
         expert_add_info_format(pinfo, ti, &ei_kafka_unknown_api_key,
                                "%s API key", kafka_api_key_to_str(matcher->api_key));
     }
@@ -864,7 +864,7 @@ kafka_check_supported_api_version(packet_info *pinfo, proto_item *ti, kafka_quer
 
     api_info = kafka_get_api_info(matcher->api_key);
     if (api_info != NULL && !kafka_is_api_version_supported(api_info, matcher->api_version)) {
-        col_append_fstr(pinfo->cinfo, COL_INFO, " [Unsupported API version]");
+        col_append_str(pinfo->cinfo, COL_INFO, " [Unsupported API version]");
         if (api_info->min_version == -1) {
             expert_add_info_format(pinfo, ti, &ei_kafka_unsupported_api_version,
                                    "Unsupported %s version.",
@@ -1336,7 +1336,7 @@ decompress_gzip(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuf
     if (*decompressed_tvb) {
         return 1;
     } else {
-        col_append_fstr(pinfo->cinfo, COL_INFO, " [gzip decompression failed] ");
+        col_append_str(pinfo->cinfo, COL_INFO, " [gzip decompression failed] ");
         return 0;
     }
 }
@@ -1420,7 +1420,7 @@ end:
         LZ4F_freeDecompressionContext(lz4_ctxt);
     }
     if (result == 0) {
-        col_append_fstr(pinfo->cinfo, COL_INFO, " [lz4 decompression failed]");
+        col_append_str(pinfo->cinfo, COL_INFO, " [lz4 decompression failed]");
     }
     return result;
 }
@@ -1428,7 +1428,7 @@ end:
 static int
 decompress_lz4(tvbuff_t *tvb _U_, packet_info *pinfo, int offset _U_, int length _U_, tvbuff_t **decompressed_tvb _U_, int *decompressed_offset _U_)
 {
-    col_append_fstr(pinfo->cinfo, COL_INFO, " [lz4 decompression unsupported]");
+    col_append_str(pinfo->cinfo, COL_INFO, " [lz4 decompression unsupported]");
     return 0;
 }
 #endif /* HAVE_LZ4FRAME_H */
@@ -1491,7 +1491,7 @@ decompress_snappy(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvb
     result = 1;
 end:
     if (result == 0) {
-        col_append_fstr(pinfo->cinfo, COL_INFO, " [snappy decompression failed]");
+        col_append_str(pinfo->cinfo, COL_INFO, " [snappy decompression failed]");
     }
     return result;
 }
@@ -1499,7 +1499,7 @@ end:
 static int
 decompress_snappy(tvbuff_t *tvb _U_, packet_info *pinfo, int offset _U_, int length _U_, tvbuff_t **decompressed_tvb _U_, int *decompressed_offset _U_)
 {
-    col_append_fstr(pinfo->cinfo, COL_INFO, " [snappy decompression unsupported]");
+    col_append_str(pinfo->cinfo, COL_INFO, " [snappy decompression unsupported]");
     return 0;
 }
 #endif /* HAVE_SNAPPY */
@@ -1535,7 +1535,7 @@ decompress_zstd(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuf
     result = 1;
 end:
     if (result == 0) {
-        col_append_fstr(pinfo->cinfo, COL_INFO, " [zstd decompression failed]");
+        col_append_str(pinfo->cinfo, COL_INFO, " [zstd decompression failed]");
     }
     return result;
 }
@@ -1543,7 +1543,7 @@ end:
 static int
 decompress_zstd(tvbuff_t *tvb _U_, packet_info *pinfo, int offset _U_, int length _U_, tvbuff_t **decompressed_tvb _U_, int *decompressed_offset _U_)
 {
-    col_append_fstr(pinfo->cinfo, COL_INFO, " [zstd compression unsupported]");
+    col_append_str(pinfo->cinfo, COL_INFO, " [zstd compression unsupported]");
     return 0;
 }
 #endif /* HAVE_ZSTD */
@@ -1563,7 +1563,7 @@ decompress(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, int codec,
         case KAFKA_MESSAGE_CODEC_NONE:
             return decompress_none(tvb, pinfo, offset, length, decompressed_tvb, decompressed_offset);
         default:
-            col_append_fstr(pinfo->cinfo, COL_INFO, " [unsupported compression type]");
+            col_append_str(pinfo->cinfo, COL_INFO, " [unsupported compression type]");
             return 0;
     }
 }
