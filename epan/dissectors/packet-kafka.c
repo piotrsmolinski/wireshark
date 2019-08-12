@@ -996,28 +996,6 @@ dissect_kafka_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *p
     return offset;
 }
 
-static tvbuff_t *
-kafka_get_bytes(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset)
-{
-    gint32 len;
-    proto_item *pi;
-
-    len = (gint32) tvb_get_ntohl(tvb, offset);
-    pi = proto_tree_add_item(tree, hf_kafka_bytes_len, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
-
-    if (len < -1) {
-        expert_add_info(pinfo, pi, &ei_kafka_bad_bytes_length);
-        return NULL;
-    }
-    else if (len == -1) {
-        return NULL;
-    }
-    else {
-        return tvb_new_subset_length(tvb, offset, len);
-    }
-}
-
 static int
 dissect_kafka_timestamp(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, int hf_item, int offset)
 {
@@ -1401,7 +1379,6 @@ decompress_lz4(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuff
     src_offset = length;
     ret = LZ4F_getFrameInfo(lz4_ctxt, &lz4_info, data, &src_offset);
     if (LZ4F_isError(ret)) {
-        LZ4F_freeDecompressionContext(lz4_ctxt);
         goto fail;
     }
 
@@ -1419,7 +1396,6 @@ decompress_lz4(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuff
             dst_size = 1 << 22;
             break;
         default:
-            LZ4F_freeDecompressionContext(lz4_ctxt);
             goto fail;
     }
     if (lz4_info.contentSize && lz4_info.contentSize < dst_size) {
@@ -1446,7 +1422,7 @@ decompress_lz4(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuff
     return 1;
 fail:
     if (lz4_ctxt) {
-        LZ4F_freeDecompressionCOntext(lz4_ctxt);
+        LZ4F_freeDecompressionContext(lz4_ctxt);
     }
     col_append_fstr(pinfo->cinfo, COL_INFO, " [lz4 decompression failed]");
     return 0;
@@ -1594,17 +1570,34 @@ decompress(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, int codec,
     }
 }
 
+/*
+ * Function: dissect_kafka_message_old
+ * ---------------------------------------------------
+ * Handles decoding of pre-0.11 message format. In the old format
+ * only the message payload was the subject of compression.
+ *
+ * http://kafka.apache.org/0100/documentation/#messageformat
+ *
+ * tvb: actual data buffer
+ * pinfo: packet information
+ * tree: protocol information tree to append the item
+ * hf_item: protocol information item descriptor index
+ * offset: pointer to the message
+ *
+ * returns: pointer to the next message
+ */
 static int
-dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int start_offset)
+dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
 {
-    proto_item *message_ti, *decrypt_item;
-    proto_tree *subtree;
-    tvbuff_t   *raw, *payload = NULL;
-    int         offset = start_offset;
+    proto_item  *message_ti;
+    proto_tree  *subtree;
+    tvbuff_t    *decompressed_tvb;
+    int         decompressed_offset;
+    int         start_offset = offset;
     gint8       magic_byte;
     guint8      codec;
-    guint       bytes_length = 0;
     guint32     message_size;
+    guint32     length;
 
     message_size = tvb_get_guint32(tvb, start_offset + 8, ENC_BIG_ENDIAN);
 
@@ -1633,216 +1626,25 @@ dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
         offset = dissect_kafka_timestamp(tvb, pinfo, subtree, hf_kafka_message_timestamp, offset);
     }
 
-    offset = dissect_kafka_bytes(subtree, hf_kafka_message_key, tvb, pinfo, offset, NULL, &bytes_length);
+    offset = dissect_kafka_bytes(subtree, hf_kafka_message_key, tvb, pinfo, offset, NULL, NULL);
 
-    switch (codec) {
-        case KAFKA_MESSAGE_CODEC_GZIP:
-            raw = kafka_get_bytes(subtree, tvb, pinfo, offset);
-            offset += 4;
-
-            if (raw) {
-                guint compressed_size = tvb_captured_length(raw);
-
-                /* Raw compressed data */
-                proto_tree_add_item(subtree, hf_kafka_message_value_compressed, tvb, offset, compressed_size, ENC_NA);
-
-                /* Unzip message and add payload to new data tab */
-                payload = tvb_child_uncompress(tvb, raw, 0, compressed_size);
-                if (payload) {
-                    show_compression_reduction(tvb, subtree, compressed_size, (guint)tvb_captured_length(payload));
-
-                    add_new_data_source(pinfo, payload, "Uncompressed Message");
-                    dissect_kafka_message_set(payload, pinfo, subtree, 0, FALSE, codec);
-                } else {
-                    decrypt_item = proto_tree_add_item(subtree, hf_kafka_message_value, raw, 0, -1, ENC_NA);
-                    expert_add_info(pinfo, decrypt_item, &ei_kafka_message_decompress);
-                }
-                offset += compressed_size;
-
-                /* Add to summary */
-                col_append_fstr(pinfo->cinfo, COL_INFO, " [GZIPd message set]");
-                proto_item_append_text(message_ti, " (GZIPd message set)");
-            }
-            else {
-                proto_tree_add_bytes(subtree, hf_kafka_message_value, tvb, offset, 0, NULL);
-            }
-            break;
-        case KAFKA_MESSAGE_CODEC_SNAPPY:
-            raw = kafka_get_bytes(subtree, tvb, pinfo, offset);
-            offset += 4;
-            if (raw) {
-#ifdef HAVE_SNAPPY
-                guint compressed_size = tvb_reported_length(raw);
-                guint8 *data = (guint8*)tvb_memdup(wmem_packet_scope(), raw, 0, compressed_size);
-                size_t uncompressed_size;
-                snappy_status ret = SNAPPY_INVALID_INPUT;
-
-                /* Raw compressed data */
-                proto_tree_add_item(subtree, hf_kafka_message_value_compressed, tvb, offset, compressed_size, ENC_NA);
-
-                if (tvb_memeql(raw, 0, kafka_xerial_header, sizeof(kafka_xerial_header)) == 0) {
-                    /* xerial framing format */
-                    guint chunk_size, pos = 16;
-
-                    payload = tvb_new_composite();
-                    while (pos < compressed_size) {
-                        chunk_size = tvb_get_ntohl(raw, pos);
-                        pos += 4;
-                        ret = snappy_uncompressed_length(&data[pos], chunk_size, &uncompressed_size);
-                        if (ret == SNAPPY_OK) {
-                            guint8 *decompressed_buffer = (guint8*)wmem_alloc(pinfo->pool, uncompressed_size);
-
-                            ret = snappy_uncompress(&data[pos], chunk_size, decompressed_buffer, &uncompressed_size);
-                            if (ret == SNAPPY_OK) {
-                                tvb_composite_append(payload,
-                                                     tvb_new_child_real_data(tvb, decompressed_buffer,
-                                                                             (guint32)uncompressed_size, (guint32)uncompressed_size));
-                            } else {
-                                wmem_free(pinfo->pool, decompressed_buffer);
-                                break;
-                            }
-                        }
-                        pos += chunk_size;
-                    }
-                    tvb_composite_finalize(payload);
-                } else {
-                    /* unframed format */
-                    ret = snappy_uncompressed_length(data, compressed_size, &uncompressed_size);
-                    if (ret == SNAPPY_OK) {
-                        guint8 *decompressed_buffer = (guint8*)wmem_alloc(pinfo->pool, uncompressed_size);
-
-                        ret = snappy_uncompress(data, compressed_size, decompressed_buffer, &uncompressed_size);
-                        if (ret == SNAPPY_OK) {
-                            payload = tvb_new_child_real_data(tvb, decompressed_buffer,
-                                                             (guint32)uncompressed_size, (guint32)uncompressed_size);
-                        } else {
-                            wmem_free(pinfo->pool, decompressed_buffer);
-                        }
-                    }
-                }
-                if (ret == SNAPPY_OK) {
-                    show_compression_reduction(tvb, subtree, compressed_size, (guint)uncompressed_size);
-
-                    add_new_data_source(pinfo, payload, "Uncompressed Message");
-                    dissect_kafka_message_set(payload, pinfo, subtree, 0, FALSE, codec);
-
-                    /* Add to summary */
-                    col_append_fstr(pinfo->cinfo, COL_INFO, " [Snappy-compressed message set]");
-                    proto_item_append_text(message_ti, " (Snappy-compressed message set)");
-                } else {
-                    decrypt_item = proto_tree_add_item(subtree, hf_kafka_message_value, raw, 0, -1, ENC_NA);
-                    expert_add_info(pinfo, decrypt_item, &ei_kafka_message_decompress);
-                }
-                offset += tvb_captured_length(raw);
-#else
-                decrypt_item = proto_tree_add_item(subtree, hf_kafka_message_value, raw, 0, -1, ENC_NA);
-                expert_add_info_format(pinfo, decrypt_item, &ei_kafka_message_decompress, "Wireshark not compiled with Snappy support");
-#endif
-            }
-            break;
-        case KAFKA_MESSAGE_CODEC_LZ4:
-            raw = kafka_get_bytes(subtree, tvb, pinfo, offset);
-            offset += 4;
-            if (raw) {
-#ifdef HAVE_LZ4FRAME_H
-                LZ4F_decompressionContext_t lz4_ctxt;
-                LZ4F_frameInfo_t lz4_info;
-                LZ4F_errorCode_t ret;
-                size_t src_offset, src_size, dst_size;
-                guchar *decompressed_buffer = NULL;
-
-                /* Prepare compressed data buffer */
-                guint compressed_size = tvb_reported_length(raw);
-                guint8 *data = (guint8*)tvb_memdup(wmem_packet_scope(), raw, 0, compressed_size);
-                /* Override header checksum to workaround buggy Kafka implementations */
-                if (compressed_size > 7) {
-                    guint hdr_end = 6;
-                    if (data[4] & 0x08) {
-                        hdr_end += 8;
-                    }
-                    if (hdr_end < compressed_size) {
-                        data[hdr_end] = (XXH32(&data[4], hdr_end - 4, 0) >> 8) & 0xff;
-                    }
-                }
-
-                /* Show raw compressed data */
-                proto_tree_add_item(subtree, hf_kafka_message_value_compressed, tvb, offset, compressed_size, ENC_NA);
-
-                /* Allocate output buffer */
-                ret = LZ4F_createDecompressionContext(&lz4_ctxt, LZ4F_VERSION);
-                if (LZ4F_isError(ret)) {
-                    goto fail;
-                }
-                src_offset = compressed_size;
-                ret = LZ4F_getFrameInfo(lz4_ctxt, &lz4_info, data, &src_offset);
-                if (LZ4F_isError(ret)) {
-                    LZ4F_freeDecompressionContext(lz4_ctxt);
-                    goto fail;
-                }
-                switch (lz4_info.blockSizeID) {
-                case LZ4F_max64KB:
-                    dst_size = 1 << 16;
-                    break;
-                case LZ4F_max256KB:
-                    dst_size = 1 << 18;
-                    break;
-                case LZ4F_max1MB:
-                    dst_size = 1 << 20;
-                    break;
-                case LZ4F_max4MB:
-                    dst_size = 1 << 22;
-                    break;
-                default:
-                    LZ4F_freeDecompressionContext(lz4_ctxt);
-                    goto fail;
-                }
-                if (lz4_info.contentSize && lz4_info.contentSize < dst_size) {
-                    dst_size = (size_t)lz4_info.contentSize;
-                }
-                decompressed_buffer = (guchar*)wmem_alloc(pinfo->pool, dst_size);
-
-                /* Attempt the decompression. */
-                src_size = compressed_size - src_offset;
-                ret = LZ4F_decompress(lz4_ctxt, decompressed_buffer, &dst_size,
-                                      &data[src_offset], &src_size, NULL);
-                LZ4F_freeDecompressionContext(lz4_ctxt);
-                if (ret == 0) {
-                    size_t uncompressed_size = dst_size;
-
-                    show_compression_reduction(tvb, subtree, compressed_size, (guint)uncompressed_size);
-
-                    /* Add as separate data tab */
-                    payload = tvb_new_child_real_data(tvb, decompressed_buffer,
-                                                      (guint32)uncompressed_size, (guint32)uncompressed_size);
-                    add_new_data_source(pinfo, payload, "Uncompressed Message");
-
-                    /* Dissect as a message set */
-                    dissect_kafka_message_set(payload, pinfo, subtree, 0, FALSE, codec);
-
-                    /* Add to summary */
-                    col_append_fstr(pinfo->cinfo, COL_INFO, " [LZ4-compressed message set]");
-                    proto_item_append_text(message_ti, " (LZ4-compressed message set)");
-                } else {
-                fail:
-                    /* Error */
-                    decrypt_item = proto_tree_add_item(subtree, hf_kafka_message_value, raw, 0, -1, ENC_NA);
-                    expert_add_info(pinfo, decrypt_item, &ei_kafka_message_decompress);
-                }
-                offset += compressed_size;
-#else
-                decrypt_item = proto_tree_add_item(subtree, hf_kafka_message_value, raw, 0, -1, ENC_NA);
-                expert_add_info_format(pinfo, decrypt_item, &ei_kafka_message_decompress, "Wireshark not compiled with LZ4 support");
-#endif /* HAVE_LZ4FRAME_H */
-            }
-            break;
-
-        case KAFKA_MESSAGE_CODEC_NONE:
-        default:
-            offset = dissect_kafka_bytes(subtree, hf_kafka_message_value, tvb, pinfo, offset, NULL, &bytes_length);
-
-            /* Add to summary */
-            col_append_fstr(pinfo->cinfo, COL_INFO, " [%u bytes]", bytes_length);
-            proto_item_append_text(message_ti, " (%u bytes)", bytes_length);
+    /*
+     * depending on the compression codec, the payload is the actual message payload (codes=none)
+     * or compressed set of messages (otherwise). In the new format (since Kafka 1.0) there
+     * is no such duality.
+     */
+    if (codec == 0) {
+        offset = dissect_kafka_bytes(subtree, hf_kafka_message_value, tvb, pinfo, offset, NULL, &length);
+    } else {
+        length = (guint32)tvb_get_ntohl(tvb, offset);
+        offset += 4;
+        if (decompress(tvb, pinfo, offset, length, codec, &decompressed_tvb, &decompressed_offset)==1) {
+            add_new_data_source(pinfo, decompressed_tvb, "Decompressed content");
+            show_compression_reduction(tvb, subtree, length, tvb_captured_length(decompressed_tvb));
+            dissect_kafka_message_set(decompressed_tvb, pinfo, subtree, decompressed_offset, FALSE, codec);
+        } else {
+            proto_item_append_text(subtree, " [Cannot decompress records]");
+        }
     }
 
     proto_item_set_len(message_ti, offset - start_offset);
@@ -1884,7 +1686,7 @@ dissect_kafka_message_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
     proto_tree_add_item(subtree, hf_kafka_message_magic, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    if (magic_byte > 2) {
+    if (magic_byte != 2) {
         proto_item_append_text(subtree, "[Unknown message magic]");
         expert_add_info_format(pinfo, batch_ti, &ei_kafka_unknown_message_magic,
                                "message magic: %d", magic_byte);
@@ -1916,7 +1718,6 @@ dissect_kafka_message_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
     proto_tree_add_item(subtree, hf_kafka_batch_base_sequence, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
-    // TODO: fill the remaining stuff
     proto_tree_add_item(subtree, hf_kafka_batch_size, tvb, offset, 4, ENC_BIG_ENDIAN);
     count = tvb_get_ntohl(tvb, offset);
     offset += 4;
@@ -1978,7 +1779,7 @@ dissect_kafka_message_set(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_message_set, &ti, "Message Set");
     /* If set came from a compressed message, make it obvious in tree root */
     if (codec != KAFKA_MESSAGE_CODEC_NONE) {
-        proto_item_append_text(subtree, " [from compressed %s message]", val_to_str_const(codec, kafka_message_codecs, "Unknown codec"));
+        proto_item_append_text(subtree, " [from compressed %s message]", val_to_str_const(codec, kafka_message_codecs, "Unknown"));
     }
 
     while (offset - start_offset < len) {
