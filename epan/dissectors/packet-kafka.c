@@ -1687,11 +1687,12 @@ decompress_lz4(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuff
     src_size = length - src_offset;
     ret = LZ4F_decompress(lz4_ctxt, decompressed_buffer, &dst_size,
                           &data[src_offset], &src_size, NULL);
-    LZ4F_freeDecompressionContext(lz4_ctxt);
 
     if (ret != 0) {
         goto fail;
     }
+
+    LZ4F_freeDecompressionContext(lz4_ctxt);
 
     size_t uncompressed_size = dst_size;
     /* Add as separate data tab */
@@ -1700,6 +1701,9 @@ decompress_lz4(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuff
     *decompressed_offset = 0;
     return 1;
 fail:
+    if (lz4_ctxt) {
+        LZ4F_freeDecompressionCOntext(lz4_ctxt);
+    }
     col_append_fstr(pinfo->cinfo, COL_INFO, " [lz4 decompression failed]");
     return 0;
 }
