@@ -8834,7 +8834,7 @@ proto_register_kafka(void)
                 NULL, HFILL }
         },
         { &hf_kafka_sasl_auth_bytes,
-            { "SASL Authentication Bytes", "kafka.header_value",
+            { "SASL Authentication Bytes", "kafka.sasl_authentication",
                 FT_BYTES, BASE_NONE, 0, 0,
                 NULL, HFILL }
         },
