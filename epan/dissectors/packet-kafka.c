@@ -1350,7 +1350,7 @@ decompress_lz4(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuff
     LZ4F_errorCode_t ret;
     size_t src_offset, src_size, dst_size;
     guchar *decompressed_buffer = NULL;
-    int result = 0;
+    int res = 0;
 
     /* Prepare compressed data buffer */
     guint8 *data = (guint8*)tvb_memdup(wmem_packet_scope(), tvb, offset, length);
@@ -1414,15 +1414,15 @@ decompress_lz4(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuff
     *decompressed_tvb = tvb_new_child_real_data(tvb, decompressed_buffer,
                                       (guint32)uncompressed_size, (guint32)uncompressed_size);
     *decompressed_offset = 0;
-    result = 1;
+    res = 1;
 end:
     if (lz4_ctxt) {
         LZ4F_freeDecompressionContext(lz4_ctxt);
     }
-    if (result == 0) {
+    if (res == 0) {
         col_append_str(pinfo->cinfo, COL_INFO, " [lz4 decompression failed]");
     }
-    return result;
+    return res;
 }
 #else
 static int
@@ -1440,7 +1440,7 @@ decompress_snappy(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvb
     guint8 *data = (guint8*)tvb_memdup(wmem_packet_scope(), tvb, offset, length);
     size_t uncompressed_size;
     snappy_status ret = SNAPPY_INVALID_INPUT;
-    int result = 0;
+    int res = 0;
 
     if (tvb_memeql(tvb, offset, kafka_xerial_header, sizeof(kafka_xerial_header)) == 0) {
 
@@ -1488,12 +1488,12 @@ decompress_snappy(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvb
         *decompressed_offset = 0;
 
     }
-    result = 1;
+    res = 1;
 end:
-    if (result == 0) {
+    if (res == 0) {
         col_append_str(pinfo->cinfo, COL_INFO, " [snappy decompression failed]");
     }
-    return result;
+    return res;
 }
 #else
 static int
@@ -1513,7 +1513,7 @@ decompress_zstd(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuf
     size_t size;
     *decompressed_tvb = tvb_new_composite();
     *decompressed_offset = 0;
-    int result = 0;
+    int res = 0;
 
     do {
         ZSTD_outBuffer output = { wmem_alloc(pinfo->pool, ZSTD_DStreamOutSize()), ZSTD_DStreamOutSize(), 0 };
@@ -1532,12 +1532,12 @@ decompress_zstd(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuf
     }
 
     tvb_composite_finalize(*decompressed_tvb);
-    result = 1;
+    res = 1;
 end:
-    if (result == 0) {
+    if (res == 0) {
         col_append_str(pinfo->cinfo, COL_INFO, " [zstd decompression failed]");
     }
-    return result;
+    return res;
 }
 #else
 static int
