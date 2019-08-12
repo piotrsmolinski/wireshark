@@ -1345,7 +1345,7 @@ decompress_gzip(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuf
 static int
 decompress_lz4(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvbuff_t **decompressed_tvb, int *decompressed_offset)
 {
-    LZ4F_decompressionContext_t lz4_ctxt;
+    LZ4F_decompressionContext_t lz4_ctxt = NULL;
     LZ4F_frameInfo_t lz4_info;
     LZ4F_errorCode_t ret;
     size_t src_offset, src_size, dst_size;
@@ -1742,7 +1742,6 @@ dissect_kafka_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int s
     } else {
         return dissect_kafka_message_new(tvb, pinfo, tree, start_offset);
     }
-
 }
 
 static int
@@ -2375,7 +2374,6 @@ dissect_kafka_leader_and_isr_request_topic_state(tvbuff_t *tvb, packet_info *pin
     /* topic */
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
                                   &topic_start, &topic_len);
-
 
     /* [partition_state] */
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
@@ -9017,7 +9015,6 @@ proto_register_kafka(void)
         "Show length for string and bytes fields in the protocol tree",
         "",
         &kafka_show_string_bytes_lengths);
-
 }
 
 void
