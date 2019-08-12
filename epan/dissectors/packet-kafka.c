@@ -1572,9 +1572,10 @@ decompress(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, int codec,
  * Function: dissect_kafka_message_old
  * ---------------------------------------------------
  * Handles decoding of pre-0.11 message format. In the old format
- * only the message payload was the subject of compression.
+ * only the message payload was the subject of compression
+ * and the batches were special kind of message payload.
  *
- * http://kafka.apache.org/0100/documentation/#messageformat
+ * https://kafka.apache.org/0100/documentation/#messageformat
  *
  * tvb: actual data buffer
  * pinfo: packet information
@@ -1582,7 +1583,7 @@ decompress(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, int codec,
  * hf_item: protocol information item descriptor index
  * offset: pointer to the message
  *
- * returns: pointer to the next message
+ * returns: pointer to the next message/batch
  */
 static int
 dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
@@ -1650,12 +1651,28 @@ dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
     return offset;
 }
 
+/*
+ * Function: dissect_kafka_message_new
+ * ---------------------------------------------------
+ * Handles decoding of the new message format. In the new format
+ * there is no difference between compressed and plain batch.
+ *
+ * https://kafka.apache.org/documentation/#messageformat
+ *
+ * tvb: actual data buffer
+ * pinfo: packet information
+ * tree: protocol information tree to append the item
+ * hf_item: protocol information item descriptor index
+ * offset: pointer to the message
+ *
+ * returns: pointer to the next message/batch
+ */
 static int
-dissect_kafka_message_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int start_offset)
+dissect_kafka_message_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
 {
     proto_item *batch_ti;
     proto_tree *subtree;
-    int         offset = start_offset;
+    int         start_offset = offset;
     gint8       magic_byte;
     guint8      codec;
     guint32     message_size;
@@ -1737,15 +1754,15 @@ dissect_kafka_message_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
 }
 
 static int
-dissect_kafka_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int start_offset)
+dissect_kafka_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
 {
     gint8       magic_byte;
 
-    magic_byte = tvb_get_guint8(tvb, start_offset+16);
+    magic_byte = tvb_get_guint8(tvb, offset+16);
     if (magic_byte < 2) {
-        return dissect_kafka_message_old(tvb, pinfo, tree, start_offset);
+        return dissect_kafka_message_old(tvb, pinfo, tree, offset);
     } else {
-        return dissect_kafka_message_new(tvb, pinfo, tree, start_offset);
+        return dissect_kafka_message_new(tvb, pinfo, tree, offset);
     }
 }
 
