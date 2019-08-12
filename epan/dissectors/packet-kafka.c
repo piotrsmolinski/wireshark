@@ -8894,7 +8894,7 @@ proto_register_kafka(void)
                 NULL, HFILL }
         },
         { &hf_kafka_config_default,
-            { "Default", "kafka.config_defualt",
+            { "Default", "kafka.config_default",
                 FT_BOOLEAN, BASE_NONE, 0, 0,
                 NULL, HFILL }
         },
