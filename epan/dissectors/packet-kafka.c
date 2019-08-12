@@ -515,10 +515,10 @@ static const value_string kafka_errors[] = {
     { 79, "Member ID Required" },
     { 80, "Preferred Leader not Available" },
     { 81, "Group Max Size Reached" },
-    { 82, "Fenced Instance ID"},
-    { 83, "Eligible topic partition leaders are not available"},
-    { 84, "Leader election not needed for topic partition"},
-    { 85, "No partition reassignment is in progress"},
+    { 82, "Fenced Instance ID" },
+    { 83, "Eligible topic partition leaders are not available" },
+    { 84, "Leader election not needed for topic partition" },
+    { 85, "No partition reassignment is in progress" },
     { 0, NULL }
 };
 
