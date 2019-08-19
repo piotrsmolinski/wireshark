@@ -4,7 +4,7 @@
  * Update from Kafka 0.10.1.0 to 2.3 by Piotr Smolinski <piotr.smolinski@confluent.io>
  *
  * https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol
- * http://kafka.apache.org/protocol.html
+ * https://kafka.apache.org/protocol.html
  *
  * Wireshark - Network traffic analyzer
  * By Gerald Combs <gerald@wireshark.org>
@@ -663,7 +663,7 @@ static const value_string config_operations[] = {
     { 0, "Set" },
     { 1, "Delete" },
     { 2, "Append" },
-    { 3, "Substract" },
+    { 3, "Subtract" },
     { 0, NULL }
 };
 
@@ -1043,8 +1043,8 @@ tvb_read_kafka_varint32(tvbuff_t *tvb, int offset, gint32 *p_val, int *p_len)
     // the last octet can take at most 4 bits
 
     // either continuation bit is set or there are more than 32 bits
-    DISSECTOR_ASSERT((p&0x80)==0);
-    DISSECTOR_ASSERT(i<5 || (p&0x70)==0);
+    DISSECTOR_ASSERT((p&0x80) == 0);
+    DISSECTOR_ASSERT(i < 5 || (p&0x70) == 0);
 
     if (p_val != NULL) {
         *p_val = (v>>1) ^ ((v & 1) ? -1 : 0);
@@ -1087,8 +1087,8 @@ tvb_read_kafka_varint64(tvbuff_t *tvb, int offset, gint64 *p_val, int *p_len)
     // the last octet can take at most 1 bit
 
     // either continuation bit is set or there are more than 64 bits
-    DISSECTOR_ASSERT((p&0x80)==0);
-    DISSECTOR_ASSERT(i<10 || (p&0x7e)==0);
+    DISSECTOR_ASSERT((p&0x80) == 0);
+    DISSECTOR_ASSERT(i < 10 || (p&0x7e) == 0);
 
     if (p_val != NULL) {
         *p_val = (v>>1) ^ ((v & 1) ? -1 : 0);
@@ -1168,7 +1168,7 @@ dissect_kafka_string_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree
 
     tvb_read_kafka_varint32(tvb, offset, &val, &len);
 
-    DISSECTOR_ASSERT(val>=0);
+    DISSECTOR_ASSERT(val >= 0);
 
     proto_tree_add_item(tree, hf_item, tvb, offset+len, val, ENC_UTF_8|ENC_NA);
 
@@ -1212,37 +1212,22 @@ dissect_kafka_bytes_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
 
     if (val > 0) {
         // there is payload available, possibly with 0 octets
-        proto_tree_add_bytes_with_length(tree, hf_item, tvb, offset+len, val,
-            (guint8*)tvb_memdup(wmem_packet_scope(), tvb, offset+len, val), val);
-        if (p_bytes_offset != NULL) {
-            *p_bytes_offset = offset+len;
-        }
-        if (p_bytes_length != NULL) {
-            *p_bytes_length = val;
-        }
-        return offset+len+val;
+        proto_tree_add_item(tree, hf_item, tvb, offset+len, val, ENC_NA);
     } else if (val == 0) {
         // there is empty payload (0 octets)
         proto_tree_add_bytes_format_value(tree, hf_item, tvb, offset+len, 0, NULL, "<EMPTY>");
-        if (p_bytes_offset != NULL) {
-            *p_bytes_offset = offset+len;
-        }
-        if (p_bytes_length != NULL) {
-            *p_bytes_length = 0;
-        }
-        return offset+len;
     } else {
         // there is no payload (null)
         proto_tree_add_bytes_format_value(tree, hf_item, tvb, offset+len, 0, NULL, "<NULL>");
-        if (p_bytes_offset != NULL) {
-            *p_bytes_offset = offset+len;
-        }
-        if (p_bytes_length != NULL) {
-            *p_bytes_length = 0;
-        }
-        return offset+len;
+        val = 0;
     }
-
+    if (p_bytes_offset != NULL) {
+        *p_bytes_offset = offset+len;
+    }
+    if (p_bytes_length != NULL) {
+        *p_bytes_length = val;
+    }
+    return offset+len+val;
 }
 
 /* Calculate and show the reduction in transmitted size due to compression */
@@ -1292,8 +1277,8 @@ dissect_kafka_record_headers(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *
     tvb_read_kafka_varint32(tvb, offset, &count, NULL);
     offset = dissect_kafka_varint(tvb, pinfo, subtree, hf_kafka_record_headers_count, offset);
 
-    // null array
-    DISSECTOR_ASSERT(count>=-1);
+    // null array is marked by -1 as opposed to empty array marked by 0
+    DISSECTOR_ASSERT(count >= -1);
     for (i=0;i<count;i++) {
         offset = dissect_kafka_record_headers_header(tvb, pinfo, subtree, offset);
     }
@@ -1472,6 +1457,7 @@ decompress_snappy(tvbuff_t *tvb, packet_info *pinfo, int offset, int length, tvb
 
         while (pos < length) {
             chunk_size = tvb_get_ntohl(tvb, offset+pos);
+            DISSECTOR_ASSERT(pos+chunk_size <= length);
             pos += 4;
             rc = snappy_uncompressed_length(&data[pos], chunk_size, &uncompressed_size);
             if (rc != SNAPPY_OK) {
@@ -1653,7 +1639,7 @@ dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
     if (codec == 0) {
         offset = dissect_kafka_bytes(subtree, hf_kafka_message_value, tvb, pinfo, offset, NULL, &length);
     } else {
-        length = (guint32)tvb_get_ntohl(tvb, offset);
+        length = tvb_get_ntohl(tvb, offset);
         offset += 4;
         if (decompress(tvb, pinfo, offset, length, codec, &decompressed_tvb, &decompressed_offset)==1) {
             add_new_data_source(pinfo, decompressed_tvb, "Decompressed content");
@@ -3113,7 +3099,7 @@ dissect_kafka_offsets_request_partition(tvbuff_t *tvb, packet_info *pinfo, proto
 
     offset = dissect_kafka_partition_id_ret(tvb, pinfo, subtree, offset, &partition);
 
-    if (api_version >= 4 ) {
+    if (api_version >= 4) {
         proto_tree_add_item(subtree, hf_kafka_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
     }
@@ -3157,7 +3143,7 @@ dissect_kafka_offsets_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
     proto_tree_add_item(tree, hf_kafka_replica, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
-    if (api_version >= 2 ) {
+    if (api_version >= 2) {
         proto_tree_add_item(tree, hf_kafka_isolation_level, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
     }
@@ -8440,12 +8426,12 @@ proto_register_kafka(void)
         },
         { &hf_kafka_message_key,
             { "Key", "kafka.message_key",
-               FT_BYTES, BASE_NONE, 0, 0,
+               FT_BYTES, BASE_SHOW_ASCII_PRINTABLE, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_message_value,
             { "Value", "kafka.message_value",
-               FT_BYTES, BASE_NONE, 0, 0,
+               FT_BYTES, BASE_SHOW_ASCII_PRINTABLE, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_message_value_compressed,
@@ -8735,7 +8721,7 @@ proto_register_kafka(void)
         },
         { &hf_kafka_record_header_value,
             { "Header Value", "kafka.header_value",
-                FT_BYTES, BASE_NONE, 0, 0,
+                FT_BYTES, BASE_SHOW_ASCII_PRINTABLE, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_record_headers_count,
