@@ -2872,6 +2872,11 @@ dissect_kafka_fetch_response_partition(tvbuff_t *tvb, packet_info *pinfo, proto_
     if (api_version >= 4) {
         offset = dissect_kafka_aborted_transactions(tvb, pinfo, subtree, offset, api_version);
     }
+    
+    if (api_version >= 11) {
+        proto_tree_add_item(subtree, hf_kafka_replica, tvb, offset, 4, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
 
     len = tvb_get_ntohl(tvb, offset);
     offset += 4;
@@ -2922,11 +2927,6 @@ dissect_kafka_fetch_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
         offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
         proto_tree_add_item(tree, hf_kafka_fetch_session_id, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
-    }
-
-    if (api_version >= 11) {
-        proto_tree_add_item(tree, hf_kafka_replica, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
     }
 
