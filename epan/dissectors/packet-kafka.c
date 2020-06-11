@@ -85,6 +85,7 @@ static int hf_kafka_batch_size = -1;
 static int hf_kafka_message_key = -1;
 static int hf_kafka_message_value = -1;
 static int hf_kafka_message_compression_reduction = -1;
+static int hf_kafka_truncated_content = -1;
 static int hf_kafka_request_frame = -1;
 static int hf_kafka_response_frame = -1;
 static int hf_kafka_consumer_group = -1;
@@ -1759,12 +1760,14 @@ dissect_kafka_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int o
     if (offset + 12 > end_offset) {
         // in this case we deal with truncated message, where the size part may be also truncated
         // actually we may add truncated info
+        proto_tree_add_item(tree, hf_kafka_truncated_content, tvb, offset, end_offset-offset, ENC_NA);
         return end_offset;
     }
     message_size = tvb_get_guint32(tvb, offset + 8, ENC_BIG_ENDIAN);
     if (offset + 12 + message_size > (guint32)end_offset) {
         // in this case we deal with truncated message, where the truncation point falls somewhere
         // in the message body
+        proto_tree_add_item(tree, hf_kafka_truncated_content, tvb, offset, end_offset-offset, ENC_NA);
         return end_offset;
     }
 
@@ -8437,6 +8440,11 @@ proto_register_kafka(void)
         { &hf_kafka_message_compression_reduction,
             { "Compression Reduction (compressed/uncompressed)", "kafka.message_compression_reduction",
                FT_FLOAT, BASE_NONE, 0, 0,
+               NULL, HFILL }
+        },
+        { &hf_kafka_truncated_content,
+            { "Truncated Content", "kafka.truncated_content",
+               FT_BYTES, BASE_NONE, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_consumer_group,
