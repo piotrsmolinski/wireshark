@@ -2889,7 +2889,7 @@ dissect_kafka_fetch_response_partition(tvbuff_t *tvb, packet_info *pinfo, proto_
     if (api_version >= 4) {
         offset = dissect_kafka_aborted_transactions(tvb, pinfo, subtree, offset, api_version);
     }
-    
+
     if (api_version >= 11) {
         proto_tree_add_item(subtree, hf_kafka_replica, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
