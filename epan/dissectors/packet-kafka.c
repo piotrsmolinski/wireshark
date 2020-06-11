@@ -1572,11 +1572,12 @@ decompress(tvbuff_t *tvb, packet_info *pinfo, int offset, guint32 length, int co
  * tree: protocol information tree to append the item
  * hf_item: protocol information item descriptor index
  * offset: pointer to the message
+ * end_offset: last possible offset in this batch
  *
  * returns: pointer to the next message/batch
  */
 static int
-dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
+dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, int end_offset _U_)
 {
     proto_item  *message_ti;
     proto_tree  *subtree;
@@ -1657,11 +1658,12 @@ dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
  * tree: protocol information tree to append the item
  * hf_item: protocol information item descriptor index
  * offset: pointer to the message
+ * end_offset: last possible offset in this batch
  *
  * returns: pointer to the next message/batch
  */
 static int
-dissect_kafka_message_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
+dissect_kafka_message_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, int end_offset _U_)
 {
     proto_item *batch_ti;
     proto_tree *subtree;
@@ -1749,15 +1751,28 @@ dissect_kafka_message_new(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
 }
 
 static int
-dissect_kafka_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset)
+dissect_kafka_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset, int end_offset)
 {
     gint8       magic_byte;
+    guint32     message_size;
 
-    magic_byte = tvb_get_guint8(tvb, offset+16);
+    if (offset + 12 > end_offset) {
+        // in this case we deal with truncated message, where the size part may be also truncated
+        // actually we may add truncated info
+        return end_offset;
+    }
+    message_size = tvb_get_guint32(tvb, offset + 8, ENC_BIG_ENDIAN);
+    if (offset + 12 + message_size > (guint32)end_offset) {
+        // in this case we deal with truncated message, where the truncation point falls somewhere
+        // in the message body
+        return end_offset;
+    }
+
+    magic_byte = tvb_get_guint8(tvb, offset + 16);
     if (magic_byte < 2) {
-        return dissect_kafka_message_old(tvb, pinfo, tree, offset);
+        return dissect_kafka_message_old(tvb, pinfo, tree, offset, end_offset);
     } else {
-        return dissect_kafka_message_new(tvb, pinfo, tree, offset);
+        return dissect_kafka_message_new(tvb, pinfo, tree, offset, end_offset);
     }
 }
 
@@ -1776,7 +1791,7 @@ dissect_kafka_message_set(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
     }
 
     while (offset < end_offset) {
-        offset = dissect_kafka_message(tvb, pinfo, subtree, offset);
+        offset = dissect_kafka_message(tvb, pinfo, subtree, offset, end_offset);
         messages += 1;
     }
 
