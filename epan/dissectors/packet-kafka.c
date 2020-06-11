@@ -1799,7 +1799,6 @@ dissect_kafka_message_set(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
         expert_add_info(pinfo, ti, &ei_kafka_bad_message_set_length);
     }
 
-    proto_item_append_text(ti, " (%d Messages)", messages);
     proto_item_set_end(ti, tvb, offset);
 
     return offset;
