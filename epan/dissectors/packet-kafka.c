@@ -533,6 +533,9 @@ static const value_string kafka_errors[] = {
     { 83, "Eligible topic partition leaders are not available" },
     { 84, "Leader election not needed for topic partition" },
     { 85, "No partition reassignment is in progress" },
+    { 86, "Deleting offsets of a topic is forbidden while the consumer group is actively subscribed to it" },
+    { 87, "This record has failed the validation on broker and hence will be rejected" },
+    { 88, "There are unstable offsets that need to be cleared" },
     { 0, NULL }
 };
 
