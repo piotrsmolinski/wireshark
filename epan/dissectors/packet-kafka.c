@@ -854,6 +854,24 @@ kafka_get_api_info(kafka_api_key_t api_key)
     }
 }
 
+/*
+ * Check if the API version uses flexible coding. Flexible coding was introduced in Kafka 2.4.
+ * The major changes in the flexible versions:
+ * - string length is stored as varint instead of int16
+ * - the header and message content may include additional flexible fields.
+ * The flexible version affects also the header. Normally the header version is 1.
+ * Flexible API headers are version 2. There are two hardcoded exceptions. ControlledShutdown
+ * request always uses header version 0. Same applies for ApiVersions response. These cases
+ * have to be covered in the message parsing.
+ */
+static gboolean
+kafka_is_api_version_flexible(const kafka_api_info_t *api_info, kafka_api_version_t api_version)
+{
+    DISSECTOR_ASSERT(api_info);
+
+    return !(api_info->flexible_since == -1 || api_version < api_info->flexible_since);
+}
+
 static gboolean
 kafka_is_api_version_supported(const kafka_api_info_t *api_info, kafka_api_version_t api_version)
 {
