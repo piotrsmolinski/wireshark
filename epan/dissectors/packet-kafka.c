@@ -996,6 +996,48 @@ dissect_kafka_compact_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo,
 }
 
 static int
+dissect_kafka_varint(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
+                     gint64 *p_value)
+{
+    gint64 value;
+    guint len;
+    proto_item *pi;
+
+    len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &value, ENC_VARINT_ZIGZAG);
+    pi = proto_tree_add_int64(tree, hf_item, tvb, offset, len, value);
+
+    if (len == 0) {
+        expert_add_info(pinfo, pi, &ei_kafka_bad_varint);
+        return -1;
+    }
+
+    if (p_value != NULL) *p_value = value;
+
+    return offset + len;
+}
+
+static int
+dissect_kafka_varuint(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
+                      guint64 *p_value)
+{
+    guint64 value;
+    guint len;
+    proto_item *pi;
+
+    len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &value, ENC_VARINT_PROTOBUF);
+    pi = proto_tree_add_uint64(tree, hf_item, tvb, offset, len, value);
+
+    if (len == 0) {
+        expert_add_info(pinfo, pi, &ei_kafka_bad_varint);
+        return -1;
+    }
+
+    if (p_value != NULL) *p_value = value;
+
+    return offset + len;
+}
+
+static int
 dissect_kafka_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
                      int *p_string_offset, int *p_string_len)
 {
