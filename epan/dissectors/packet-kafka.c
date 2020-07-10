@@ -1039,76 +1039,120 @@ dissect_kafka_varuint(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info 
 
 static int
 dissect_kafka_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
-                     int *p_string_offset, int *p_string_len)
+                     int *p_offset, int *p_length)
 {
-    gint16 len;
+    gint16 length;
     proto_item *pi;
 
-    /* String length */
-    len = (gint16) tvb_get_ntohs(tvb, offset);
-    pi = proto_tree_add_item(tree, hf_kafka_string_len, tvb, offset, 2, ENC_BIG_ENDIAN);
-    offset += 2;
-
-    if (p_string_offset != NULL) *p_string_offset = offset;
-
-    if (len < -1) {
+    length = (gint16) tvb_get_ntohs(tvb, offset);
+    if (length < -1) {
+        pi = proto_tree_add_item(tree, hf_item, tvb, offset, 0, ENC_NA);
         expert_add_info(pinfo, pi, &ei_kafka_bad_string_length);
-    }
-    else {
-        /* Only showing length field if preference indicates */
-        if (!kafka_show_string_bytes_lengths) {
-            proto_item_set_hidden(pi);
-        }
-
-        if (len == -1) {
-            /* -1 indicates a NULL string */
-            proto_tree_add_string(tree, hf_item, tvb, offset, 0, NULL);
-        }
-        else {
-            /* Add the string itself. */
-            proto_tree_add_item(tree, hf_item, tvb, offset, len, ENC_NA|ENC_ASCII);
-            offset += len;
-        }
+        return -1;
     }
 
-    if (p_string_len != NULL) *p_string_len = len;
+    if (length == -1) {
+        proto_tree_add_string(tree, hf_item, tvb, offset, 2, NULL);
+    } else {
+        proto_tree_add_string(tree, hf_item, tvb, offset, length + 2,
+                tvb_get_string_enc(wmem_packet_scope(), tvb, offset + 2, length, ENC_UTF_8));
+    }
+
+    if (p_offset != NULL) *p_offset = offset + 2;
+    if (p_length != NULL) *p_length = length;
+
+    return offset;
+}
+
+static int
+dissect_kafka_compact_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
+                             int *p_offset, int *p_length)
+{
+    guint len;
+    guint64 length;
+    proto_item *pi;
+
+    len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &length, ENC_VARINT_PROTOBUF);
+
+    if (len == 0) {
+        pi = proto_tree_add_item(tree, hf_item, tvb, offset, 0, ENC_NA);
+        expert_add_info(pinfo, pi, &ei_kafka_bad_varint);
+        return -1;
+    }
+
+    if (length == 0) {
+        proto_tree_add_string(tree, hf_item, tvb, offset, len, NULL);
+    } else {
+        proto_tree_add_string(tree, hf_item, tvb, offset, len + (gint)length - 1,
+                tvb_get_string_enc(wmem_packet_scope(), tvb, offset + len, (gint)length - 1, ENC_UTF_8));
+    }
+
+    if (p_offset != NULL) *p_offset = offset + len;
+    if (p_length != NULL) *p_length = (gint)length - 1;
+
+    if (length == 0) {
+        offset += len;
+    } else {
+        offset += len + (gint)length - 1;
+    }
 
     return offset;
 }
 
 static int
 dissect_kafka_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
-                    int *p_bytes_offset, int *p_bytes_len)
+                    int *p_offset, int *p_length)
 {
-    gint32 len;
+    gint16 length;
     proto_item *pi;
 
-    /* Length */
-    len = (gint32) tvb_get_ntohl(tvb, offset);
-    pi = proto_tree_add_item(tree, hf_kafka_bytes_len, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
-
-    if (p_bytes_offset != NULL) *p_bytes_offset = offset;
-
-    if (len < -1) {
-        expert_add_info(pinfo, pi, &ei_kafka_bad_bytes_length);
-    }
-    else {
-        /* Only showing length field if preference indicates */
-        if (!kafka_show_string_bytes_lengths) {
-            proto_item_set_hidden(pi);
-        }
-
-        if (len == -1) {
-            proto_tree_add_bytes(tree, hf_item, tvb, offset, 0, NULL);
-        }
-        else {
-            proto_tree_add_item(tree, hf_item, tvb, offset, len, ENC_NA);
-            offset += len;
-        }
+    length = (gint16) tvb_get_ntohs(tvb, offset);
+    if (length < -1) {
+        pi = proto_tree_add_item(tree, hf_item, tvb, offset, 0, ENC_NA);
+        expert_add_info(pinfo, pi, &ei_kafka_bad_string_length);
+        return -1;
     }
 
-    if (p_bytes_len != NULL) *p_bytes_len = len;
+    if (length == -1) {
+        proto_tree_add_bytes(tree, hf_item, tvb, offset, 2, NULL);
+    } else {
+        proto_tree_add_bytes_with_length(tree, hf_item, tvb, offset, length + 2,
+        tvb_get_ptr(tvb, offset + 2, length),
+                length);
+    }
+
+    if (p_offset != NULL) *p_offset = offset + 2;
+    if (p_length != NULL) *p_length = length;
+
+    return offset;
+}
+
+static int
+dissect_kafka_compact_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
+                    int *p_offset, int *p_length)
+{
+    guint len;
+    guint64 length;
+    proto_item *pi;
+
+    len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &length, ENC_VARINT_PROTOBUF);
+
+    if (len == 0) {
+        pi = proto_tree_add_item(tree, hf_item, tvb, offset, 0, ENC_NA);
+        expert_add_info(pinfo, pi, &ei_kafka_bad_varint);
+        return -1;
+    }
+
+    if (length == 0) {
+        proto_tree_add_bytes(tree, hf_item, tvb, offset, len, NULL);
+    } else {
+        proto_tree_add_bytes_with_length(tree, hf_item, tvb, offset, len + (gint)length - 1,
+                                         tvb_get_ptr(tvb, offset + len, (gint)length - 1),
+                                         (gint)length - 1);
+    }
+
+    if (p_offset != NULL) *p_offset = offset + len;
+    if (p_length != NULL) *p_length = (gint)length - 1;
 
     return offset;
 }
@@ -1190,7 +1234,7 @@ dissect_kafka_string_new(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree
         val = 0;
     } else if (val > 0) {
         // there is payload available, possibly with 0 octets
-        proto_tree_add_item(tree, hf_item, tvb, offset+len, (gint)val, ENC_NA | ENC_UTF_8);
+        proto_tree_add_item(tree, hf_item, tvb, offset+len, (gint)val, ENC_UTF_8);
     } else if (val == 0) {
         // there is empty payload (0 octets)
         proto_tree_add_string_format_value(tree, hf_item, tvb, offset+len, 0, NULL, "<EMPTY>");
@@ -2019,7 +2063,7 @@ dissect_kafka_offset_fetch_request_topic(tvbuff_t *tvb, packet_info *pinfo, prot
 
     proto_item_set_len(ti, offset - start_offset);
     proto_item_append_text(ti, " (Topic: %s, Partitions: %u)",
-                           tvb_get_string_enc(wmem_packet_scope(), tvb, topic_start, topic_len, ENC_UTF_8|ENC_NA),
+                           tvb_get_string_enc(wmem_packet_scope(), tvb, topic_start, topic_len, ENC_UTF_8),
                            count);
 
     return offset;
@@ -2227,7 +2271,7 @@ dissect_kafka_metadata_broker(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
     proto_item_append_text(ti, " (node %u: %s:%u)",
                            nodeid,
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                           host_start, host_len, ENC_UTF_8|ENC_NA),
+                           host_start, host_len, ENC_UTF_8),
                            broker_port);
 
     proto_item_set_len(ti, offset - start_offset);
@@ -2322,7 +2366,7 @@ dissect_kafka_metadata_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &name_start, &name_length);
     proto_item_append_text(ti, " (%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                           name_start, name_length, ENC_UTF_8|ENC_NA));
+                           name_start, name_length, ENC_UTF_8));
 
     if (api_version >= 1) {
         proto_tree_add_item(subtree, hf_kafka_is_internal, tvb, offset, 1, ENC_NA);
@@ -2484,7 +2528,7 @@ dissect_kafka_leader_and_isr_request_partition_state(tvbuff_t *tvb, packet_info 
     if (api_version < 2) {
         proto_item_append_text(subti, " (Topic=%s, Partition-ID=%u)",
                                tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                                  topic_start, topic_len, ENC_UTF_8|ENC_NA),
+                                                  topic_start, topic_len, ENC_UTF_8),
                                partition);
     } else {
         proto_item_append_text(subti, " (Partition-ID=%u)",
@@ -2516,7 +2560,7 @@ dissect_kafka_leader_and_isr_request_topic_state(tvbuff_t *tvb, packet_info *pin
 
     proto_item_append_text(subti, " (Name=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -2550,7 +2594,7 @@ dissect_kafka_leader_and_isr_request_live_leader(tvbuff_t *tvb, packet_info *pin
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (node %u: %s:%u)",
                            nodeid,
-                           tvb_get_string_enc(wmem_packet_scope(), tvb, host_start, host_len, ENC_UTF_8|ENC_NA),
+                           tvb_get_string_enc(wmem_packet_scope(), tvb, host_start, host_len, ENC_UTF_8),
                            broker_port);
 
     return offset;
@@ -2624,7 +2668,7 @@ dissect_kafka_leader_and_isr_response_partition(tvbuff_t *tvb, packet_info *pinf
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s, Partition-ID=%u, Error=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA),
+                                              topic_start, topic_len, ENC_UTF_8),
                            partition,
                            kafka_error_to_str(error));
 
@@ -2677,7 +2721,7 @@ dissect_kafka_stop_replica_request_topic(tvbuff_t *tvb, packet_info *pinfo, prot
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Name=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -2706,7 +2750,7 @@ dissect_kafka_stop_replica_request_partition(tvbuff_t *tvb, packet_info *pinfo _
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s, Partition-ID=%u)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA),
+                                              topic_start, topic_len, ENC_UTF_8),
                            partition);
 
     return offset;
@@ -2779,7 +2823,7 @@ dissect_kafka_stop_replica_response_partition(tvbuff_t *tvb, packet_info *pinfo,
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s, Partition-ID=%u, Error=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA),
+                                              topic_start, topic_len, ENC_UTF_8),
                            partition,
                            kafka_error_to_str(error));
 
@@ -3111,7 +3155,7 @@ dissect_kafka_produce_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tre
                                  &dissect_kafka_produce_request_partition);
 
     proto_item_append_text(ti, " (Name=%s)",
-                           tvb_get_string_enc(wmem_packet_scope(), tvb, topic_off, topic_len, ENC_UTF_8|ENC_NA));
+                           tvb_get_string_enc(wmem_packet_scope(), tvb, topic_off, topic_len, ENC_UTF_8));
     proto_item_set_end(ti, tvb, offset);
 
     return offset;
@@ -3523,7 +3567,7 @@ dissect_kafka_update_metadata_request_partition_state(tvbuff_t *tvb, packet_info
     } else {
         proto_item_append_text(subti, " (Topic=%s, Partition-ID=%u)",
                                tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                                  topic_start, topic_len, ENC_UTF_8|ENC_NA),
+                                                  topic_start, topic_len, ENC_UTF_8),
                                partition);
     }
     return offset;
@@ -3550,7 +3594,7 @@ dissect_kafka_update_metadata_request_topic_state(tvbuff_t *tvb, packet_info *pi
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                    topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                    topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -3591,7 +3635,7 @@ dissect_kafka_update_metadata_request_end_point(tvbuff_t *tvb, packet_info *pinf
                            val_to_str_const(security_protocol_type,
                                             kafka_security_protocol_types, "UNKNOWN"),
                            tvb_get_string_enc(wmem_packet_scope(), tvb, host_start, host_len,
-                                              ENC_UTF_8|ENC_NA),
+                                              ENC_UTF_8),
                            broker_port);
 
     return offset;
@@ -3628,7 +3672,7 @@ dissect_kafka_update_metadata_request_live_leader(tvbuff_t *tvb, packet_info *pi
         proto_item_append_text(subti, " (node %u: %s:%u)",
                                nodeid,
                                tvb_get_string_enc(wmem_packet_scope(), tvb, host_start, host_len,
-                                                  ENC_UTF_8|ENC_NA),
+                                                  ENC_UTF_8),
                                broker_port);
     } else if (api_version >= 1) {
         /* [end_point] */
@@ -3747,7 +3791,7 @@ dissect_kafka_controlled_shutdown_response_partition_remaining(tvbuff_t *tvb, pa
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s, Partition-ID=%d)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA),
+                                              topic_start, topic_len, ENC_UTF_8),
                            partition);
 
     return offset;
@@ -3833,7 +3877,7 @@ dissect_kafka_offset_commit_request_topic(tvbuff_t *tvb, packet_info *pinfo, pro
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -3875,7 +3919,7 @@ dissect_kafka_offset_commit_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     col_append_fstr(pinfo->cinfo, COL_INFO,
                     " (Group=%s)",
                     tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                       group_start, group_len, ENC_UTF_8|ENC_NA));
+                                       group_start, group_len, ENC_UTF_8));
 
     return offset;
 }
@@ -3928,7 +3972,7 @@ dissect_kafka_offset_commit_response_response(tvbuff_t *tvb, packet_info *pinfo,
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Name=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -3964,7 +4008,7 @@ dissect_kafka_find_coordinator_request(tvbuff_t *tvb, packet_info *pinfo, proto_
         col_append_fstr(pinfo->cinfo, COL_INFO,
                         " (Group=%s)",
                         tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                           group_start, group_len, ENC_UTF_8|ENC_NA));
+                                           group_start, group_len, ENC_UTF_8));
     } else {
 
         offset = dissect_kafka_string(tree, hf_kafka_coordinator_key, tvb, pinfo, offset,
@@ -4010,7 +4054,7 @@ dissect_kafka_find_coordinator_response_coordinator(tvbuff_t *tvb, packet_info *
         proto_item_append_text(subti, " (node %d: %s:%d)",
                                node_id,
                                tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                                  host_start, host_len, ENC_UTF_8|ENC_NA),
+                                                  host_start, host_len, ENC_UTF_8),
                                port);
     } else {
         proto_item_append_text(subti, " (none)");
@@ -4064,7 +4108,7 @@ dissect_kafka_join_group_request_group_protocols(tvbuff_t *tvb, packet_info *pin
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Group-ID=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              protocol_start, protocol_len, ENC_UTF_8|ENC_NA));
+                                              protocol_start, protocol_len, ENC_UTF_8));
 
     return offset;
 }
@@ -4115,9 +4159,9 @@ dissect_kafka_join_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     col_append_fstr(pinfo->cinfo, COL_INFO,
                     " (Group=%s, Member=%s)",
                     tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                       group_start, group_len, ENC_UTF_8|ENC_NA),
+                                       group_start, group_len, ENC_UTF_8),
                     tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                       member_start, member_len, ENC_UTF_8|ENC_NA));
+                                       member_start, member_len, ENC_UTF_8));
 
     return offset;
 }
@@ -4148,7 +4192,7 @@ dissect_kafka_join_group_response_member(tvbuff_t *tvb, packet_info *pinfo, prot
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Member=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              member_start, member_len, ENC_UTF_8|ENC_NA));
+                                              member_start, member_len, ENC_UTF_8));
 
     return offset;
 }
@@ -4191,7 +4235,7 @@ dissect_kafka_join_group_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
     col_append_fstr(pinfo->cinfo, COL_INFO,
                     " (Member=%s)",
                     tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                       member_start, member_len, ENC_UTF_8|ENC_NA));
+                                       member_start, member_len, ENC_UTF_8));
 
     return offset;
 }
@@ -4226,9 +4270,9 @@ dissect_kafka_heartbeat_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
     col_append_fstr(pinfo->cinfo, COL_INFO,
                     " (Group=%s, Member=%s)",
                     tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                       group_start, group_len, ENC_UTF_8|ENC_NA),
+                                       group_start, group_len, ENC_UTF_8),
                     tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                       member_start, member_len, ENC_UTF_8|ENC_NA));
+                                       member_start, member_len, ENC_UTF_8));
 
     return offset;
 }
@@ -4271,9 +4315,9 @@ dissect_kafka_leave_group_request_member(tvbuff_t *tvb, packet_info *pinfo, prot
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Member=%s, Group-Instance=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              member_start, member_len, ENC_UTF_8|ENC_NA),
+                                              member_start, member_len, ENC_UTF_8),
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              instance_start, instance_len, ENC_UTF_8|ENC_NA)
+                                              instance_start, instance_len, ENC_UTF_8)
                            );
 
     return offset;
@@ -4301,9 +4345,9 @@ dissect_kafka_leave_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
         col_append_fstr(pinfo->cinfo, COL_INFO,
                         " (Group=%s, Member=%s)",
                         tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                           group_start, group_len, ENC_UTF_8|ENC_NA),
+                                           group_start, group_len, ENC_UTF_8),
                         tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                           member_start, member_len, ENC_UTF_8|ENC_NA));
+                                           member_start, member_len, ENC_UTF_8));
 
     } else if (api_version >= 3) {
 
@@ -4316,7 +4360,7 @@ dissect_kafka_leave_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
         col_append_fstr(pinfo->cinfo, COL_INFO,
                         " (Group=%s)",
                         tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                           group_start, group_len, ENC_UTF_8|ENC_NA));
+                                           group_start, group_len, ENC_UTF_8));
 
     }
 
@@ -4348,9 +4392,9 @@ dissect_kafka_leave_group_response_member(tvbuff_t *tvb, packet_info *pinfo, pro
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Member=%s, Group-Instance=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              member_start, member_len, ENC_UTF_8|ENC_NA),
+                                              member_start, member_len, ENC_UTF_8),
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              instance_start, instance_len, ENC_UTF_8|ENC_NA)
+                                              instance_start, instance_len, ENC_UTF_8)
                            );
 
     return offset;
@@ -4407,7 +4451,7 @@ dissect_kafka_sync_group_request_group_assignment(tvbuff_t *tvb, packet_info *pi
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Member=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              member_start, member_len, ENC_UTF_8|ENC_NA));
+                                              member_start, member_len, ENC_UTF_8));
 
     return offset;
 }
@@ -4449,9 +4493,9 @@ dissect_kafka_sync_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     col_append_fstr(pinfo->cinfo, COL_INFO,
                     " (Group=%s, Member=%s)",
                     tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                       group_start, group_len, ENC_UTF_8|ENC_NA),
+                                       group_start, group_len, ENC_UTF_8),
                     tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                       member_start, member_len, ENC_UTF_8|ENC_NA));
+                                       member_start, member_len, ENC_UTF_8));
 
     return offset;
 }
@@ -4539,13 +4583,13 @@ dissect_kafka_describe_groups_response_member(tvbuff_t *tvb, packet_info *pinfo,
     if (api_version < 4) {
         proto_item_append_text(subti, " (Member=%s)",
                                tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                                  member_start, member_len, ENC_UTF_8|ENC_NA));
+                                                  member_start, member_len, ENC_UTF_8));
     } else {
         proto_item_append_text(subti, " (Member=%s, Instance=%s)",
                                tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                                  member_start, member_len, ENC_UTF_8|ENC_NA),
+                                                  member_start, member_len, ENC_UTF_8),
                                tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                                  instance_start, instance_len, ENC_UTF_8|ENC_NA));
+                                                  instance_start, instance_len, ENC_UTF_8));
     }
     return offset;
 }
@@ -4591,7 +4635,7 @@ dissect_kafka_describe_groups_response_group(tvbuff_t *tvb, packet_info *pinfo, 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Group=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              group_start, group_len, ENC_UTF_8|ENC_NA));
+                                              group_start, group_len, ENC_UTF_8));
 
     return offset;
 }
@@ -4642,9 +4686,9 @@ dissect_kafka_list_groups_response_group(tvbuff_t *tvb, packet_info *pinfo, prot
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Group-ID=%s, Protocol-Type=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              group_start, group_len, ENC_UTF_8|ENC_NA),
+                                              group_start, group_len, ENC_UTF_8),
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              protocol_type_start, protocol_type_len, ENC_UTF_8|ENC_NA));
+                                              protocol_type_start, protocol_type_len, ENC_UTF_8));
 
     return offset;
 }
@@ -4773,9 +4817,9 @@ dissect_kafka_create_topics_request_config(tvbuff_t *tvb, packet_info *pinfo, pr
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Key=%s, Value=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              key_start, key_len, ENC_UTF_8|ENC_NA),
+                                              key_start, key_len, ENC_UTF_8),
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              val_start, val_len, ENC_UTF_8|ENC_NA));
+                                              val_start, val_len, ENC_UTF_8));
 
     return offset;
 }
@@ -4822,7 +4866,7 @@ dissect_kafka_create_topics_request_create_topic_request(tvbuff_t *tvb, packet_i
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -4877,7 +4921,7 @@ dissect_kafka_create_topics_response_topic_error_code(tvbuff_t *tvb, packet_info
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s, Error=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA),
+                                              topic_start, topic_len, ENC_UTF_8),
                            kafka_error_to_str(error));
 
     return offset;
@@ -4961,7 +5005,7 @@ dissect_kafka_delete_topics_response_topic_error_code(tvbuff_t *tvb, packet_info
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s, Error=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA),
+                                              topic_start, topic_len, ENC_UTF_8),
                            kafka_error_to_str(error));
 
     return offset;
@@ -5041,7 +5085,7 @@ dissect_kafka_delete_records_request_topic(tvbuff_t *tvb, packet_info *pinfo, pr
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -5124,7 +5168,7 @@ dissect_kafka_delete_records_response_topic(tvbuff_t *tvb, packet_info *pinfo, p
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -5234,7 +5278,7 @@ dissect_kafka_offset_for_leader_epoch_request_topic(tvbuff_t *tvb, packet_info *
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Name=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -5328,7 +5372,7 @@ dissect_kafka_offset_for_leader_epoch_response_topic(tvbuff_t *tvb, packet_info 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Name=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -5387,7 +5431,7 @@ dissect_kafka_add_partitions_to_txn_request_topic(tvbuff_t *tvb, packet_info *pi
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -5469,7 +5513,7 @@ dissect_kafka_add_partitions_to_txn_response_topic(tvbuff_t *tvb, packet_info *p
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -5590,7 +5634,7 @@ dissect_kafka_write_txn_markers_request_topic(tvbuff_t *tvb, packet_info *pinfo,
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -5702,7 +5746,7 @@ dissect_kafka_write_txn_markers_response_topic(tvbuff_t *tvb, packet_info *pinfo
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -5806,7 +5850,7 @@ dissect_kafka_txn_offset_commit_request_topic(tvbuff_t *tvb, packet_info *pinfo,
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -5889,7 +5933,7 @@ dissect_kafka_txn_offset_commit_response_topic(tvbuff_t *tvb, packet_info *pinfo
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -6323,7 +6367,7 @@ dissect_kafka_describe_configs_response_synonym(tvbuff_t *tvb, packet_info *pinf
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Key=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              key_start, key_len, ENC_UTF_8|ENC_NA));
+                                              key_start, key_len, ENC_UTF_8));
 
     return offset;
 }
@@ -6368,7 +6412,7 @@ dissect_kafka_describe_configs_response_entry(tvbuff_t *tvb, packet_info *pinfo 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Key=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              key_start, key_len, ENC_UTF_8|ENC_NA));
+                                              key_start, key_len, ENC_UTF_8));
 
     return offset;
 }
@@ -6562,7 +6606,7 @@ dissect_kafka_alter_replica_log_dirs_request_topic(tvbuff_t *tvb, packet_info *p
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Name=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -6649,7 +6693,7 @@ dissect_kafka_alter_replica_log_dirs_response_topic(tvbuff_t *tvb, packet_info *
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Name=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -6706,7 +6750,7 @@ dissect_kafka_describe_log_dirs_request_topic(tvbuff_t *tvb, packet_info *pinfo 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Name=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -6779,7 +6823,7 @@ dissect_kafka_describe_log_dirs_response_topic(tvbuff_t *tvb, packet_info *pinfo
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Name=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -6806,7 +6850,7 @@ dissect_kafka_describe_log_dirs_response_log_dir(tvbuff_t *tvb, packet_info *pin
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Dir=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              dir_start, dir_len, ENC_UTF_8|ENC_NA));
+                                              dir_start, dir_len, ENC_UTF_8));
 
     return offset;
 }
@@ -6866,7 +6910,7 @@ dissect_kafka_create_partitions_request_topic(tvbuff_t *tvb, packet_info *pinfo 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Name=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
@@ -6915,7 +6959,7 @@ dissect_kafka_create_partitions_response_topic(tvbuff_t *tvb, packet_info *pinfo
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Name=%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8|ENC_NA));
+                                              topic_start, topic_len, ENC_UTF_8));
 
     return offset;
 }
