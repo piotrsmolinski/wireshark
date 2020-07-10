@@ -1071,6 +1071,9 @@ dissect_kafka_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *
     if (p_offset != NULL) *p_offset = offset + 2;
     if (p_length != NULL) *p_length = length;
 
+    offset += 2;
+    if (length != -1) offset += length;
+
     return offset;
 }
 
@@ -1133,6 +1136,9 @@ dissect_kafka_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *p
 
     if (p_offset != NULL) *p_offset = offset + 2;
     if (p_length != NULL) *p_length = length;
+
+    offset += 2;
+    if (length != -1) offset += length;
 
     return offset;
 }
@@ -2030,7 +2036,7 @@ dissect_kafka_header_tagged_field(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 
 static int
 dissect_kafka_header_tagged_fields(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                                   kafka_api_version_t api_version)
+                                   kafka_api_version_t api_version _U_)
 {
     gint64 count;
     guint len;
