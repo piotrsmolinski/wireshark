@@ -925,28 +925,37 @@ get_kafka_pdu_len(packet_info *pinfo _U_, tvbuff_t *tvb, int offset, void *data 
 }
 
 static int
+dissect_kafka_array_elements(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset,
+                        kafka_api_version_t api_version,
+                        int(*func)(tvbuff_t*, packet_info*, proto_tree*, int, kafka_api_version_t),
+                        int count)
+{
+    int i;
+    for (i=0; i<count; i++) {
+        offset = func(tvb, pinfo, tree, offset, api_version);
+    }
+    return offset;
+}
+
+static int
 dissect_kafka_array_ref(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset,
                     kafka_api_version_t api_version,
                     int(*func)(tvbuff_t*, packet_info*, proto_tree*, int, kafka_api_version_t),
                     int *p_count)
 {
-    gint32 count, i;
+    gint32 count;
 
     count = (gint32) tvb_get_ntohl(tvb, offset);
     offset += 4;
 
     if (count < -1) { // -1 means null array
         expert_add_info(pinfo, proto_tree_get_parent(tree), &ei_kafka_bad_array_length);
-    }
-    else {
-        for (i=0; i<count; i++) {
-            offset = func(tvb, pinfo, tree, offset, api_version);
-        }
+        return -1;
     }
 
-    if (p_count != NULL) {
-        *p_count = count;
-    }
+    offset = dissect_kafka_array_elements(tree, tvb, pinfo, offset, api_version, func, count);
+
+    if (p_count != NULL) *p_count = count;
 
     return offset;
 }
@@ -957,6 +966,33 @@ dissect_kafka_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int off
                     int(*func)(tvbuff_t*, packet_info*, proto_tree*, int, kafka_api_version_t))
 {
     return dissect_kafka_array_ref(tree, tvb, pinfo, offset, api_version, func, NULL);
+}
+
+static int
+dissect_kafka_compact_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset,
+                        kafka_api_version_t api_version,
+                        int(*func)(tvbuff_t*, packet_info*, proto_tree*, int, kafka_api_version_t),
+                        int *p_count)
+{
+    gint64 count;
+    gint32 len;
+
+    len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &count, ENC_VARINT_PROTOBUF);
+    if (len == 0 || count > 0x7ffffffL) {
+        expert_add_info(pinfo, proto_tree_get_parent(tree), &ei_kafka_bad_array_length);
+        return -1;
+    }
+    offset += len;
+
+    /*
+     * Compact arrays store count+1
+     * https://cwiki.apache.org/confluence/display/KAFKA/KIP-482%3A+The+Kafka+Protocol+should+Support+Optional+Tagged+Fields
+     */
+    offset = dissect_kafka_array_elements(tree, tvb, pinfo, offset, api_version, func, (int)(count - 1));
+
+    if (p_count != NULL) *p_count = (int)count;
+
+    return offset;
 }
 
 static int
