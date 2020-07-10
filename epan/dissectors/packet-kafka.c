@@ -190,6 +190,8 @@ static int hf_kafka_group_authorized_ops = -1;
 static int hf_kafka_election_type = -1;
 static int hf_kafka_tagged_field_tag = -1;
 static int hf_kafka_tagged_field_data = -1;
+static int hf_kafka_client_software_name = -1;
+static int hf_kafka_client_software_version = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
@@ -382,7 +384,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_SASL_HANDSHAKE,                "SaslHandshake",
       0, 1, -1 },
     { KAFKA_API_VERSIONS,                  "ApiVersions",
-      0, 2, 3 },
+      0, 3, 3 },
     { KAFKA_CREATE_TOPICS,                 "CreateTopics",
       0, 4, 5 },
     { KAFKA_DELETE_TOPICS,                 "DeleteTopics",
@@ -1003,6 +1005,9 @@ dissect_kafka_compact_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo,
 
 static int
 dissect_kafka_varint(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
+                     gint64 *p_value) _U_;
+static int
+dissect_kafka_varint(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
                      gint64 *p_value)
 {
     gint64 value;
@@ -1138,6 +1143,10 @@ dissect_kafka_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *p
 
     return offset;
 }
+
+static int
+dissect_kafka_compact_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
+                            int *p_offset, int *p_length) _U_;
 
 static int
 dissect_kafka_compact_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
@@ -3478,9 +3487,15 @@ dissect_kafka_offsets_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
 /* API_VERSIONS REQUEST/RESPONSE */
 
 static int
-dissect_kafka_api_versions_request(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_,
-                                   int offset _U_, kafka_api_version_t api_version _U_)
+dissect_kafka_api_versions_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                   int offset, kafka_api_version_t api_version)
 {
+    if (api_version >= 3) {
+        offset = dissect_kafka_compact_string(tree, hf_kafka_client_software_name, tvb, pinfo, offset, NULL, NULL);
+        offset = dissect_kafka_compact_string(tree, hf_kafka_client_software_version, tvb, pinfo, offset, NULL, NULL);
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
+
     return offset;
 }
 
@@ -3553,6 +3568,10 @@ dissect_kafka_api_versions_response_api_version(tvbuff_t *tvb, packet_info *pinf
         }
     }
 
+    if (api_version >= 3) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
+    }
+
     return offset;
 }
 
@@ -3564,12 +3583,22 @@ dissect_kafka_api_versions_response(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
     /* [api_version] */
-    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                 &dissect_kafka_api_versions_response_api_version);
+    if (api_version >= 3) {
+        offset = dissect_kafka_compact_array(tree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_api_versions_response_api_version, NULL);
+    } else {
+        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_api_versions_response_api_version);
+    }
 
     if (api_version >= 1) {
         offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
+
+    if (api_version >= 3) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
+
     return offset;
 }
 
@@ -9229,8 +9258,14 @@ proto_register_kafka(void)
                 FT_BYTES, BASE_SHOW_ASCII_PRINTABLE, 0, 0,
                 NULL, HFILL }
         },
+        { &hf_kafka_client_software_name,
+            { "Client Software Name", "kafka.client_software_name",
+                FT_STRING, STR_UNICODE, 0, 0,
                 NULL, HFILL }
         },
+        { &hf_kafka_client_software_version,
+            { "Client Software Version", "kafka.client_software_version",
+                FT_STRING, STR_UNICODE, 0, 0,
                 NULL, HFILL }
         },
     };
