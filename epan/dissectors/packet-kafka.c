@@ -1149,9 +1149,8 @@ dissect_kafka_offset_delta(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tr
 
     pi = proto_tree_add_int64(tree, hf_item, tvb, offset, len, base_offset+val);
     if (len == 0) {
-        //This will probably lead to a malformed packet, but it's better than not incrementing the offset
-        len = FT_VARINT_MAX_LEN;
         expert_add_info(pinfo, pi, &ei_kafka_bad_varint);
+        return -1;
     }
 
     return offset+len;
