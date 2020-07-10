@@ -188,10 +188,8 @@ static int hf_kafka_cluster_authorized_ops = -1;
 static int hf_kafka_topic_authorized_ops = -1;
 static int hf_kafka_group_authorized_ops = -1;
 static int hf_kafka_election_type = -1;
-static int hf_kafka_header_tagged_field_tag = -1;
-static int hf_kafka_header_tagged_field_data = -1;
-static int hf_kafka_payload_tagged_field_tag = -1;
-static int hf_kafka_payload_tagged_field_data = -1;
+static int hf_kafka_tagged_field_tag = -1;
+static int hf_kafka_tagged_field_data = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
@@ -251,10 +249,8 @@ static int ett_kafka_owner = -1;
 static int ett_kafka_tokens = -1;
 static int ett_kafka_token = -1;
 /* in Kafka 2.5 these structures have been added, but not yet used */
-static int ett_kafka_header_tagged_fields = -1;
-static int ett_kafka_header_tagged_field = -1;
-static int ett_kafka_payload_tagged_fields = -1;
-static int ett_kafka_payload_tagged_field = -1;
+static int ett_kafka_tagged_fields = -1;
+static int ett_kafka_tagged_field = -1;
 
 static expert_field ei_kafka_request_missing = EI_INIT;
 static expert_field ei_kafka_unknown_api_key = EI_INIT;
@@ -2014,19 +2010,19 @@ dissect_kafka_tagged_field_data(proto_tree *tree, int hf_item, tvbuff_t *tvb, pa
 }
 
 static int
-dissect_kafka_header_tagged_field(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                                  kafka_api_version_t api_version _U_)
+dissect_kafka_tagged_field(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                              kafka_api_version_t api_version _U_)
 {
     proto_item *subti;
     proto_tree *subtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_header_tagged_field,
+                                     ett_kafka_tagged_field,
                                      &subti, "Field");
 
-    offset = dissect_kafka_varuint(subtree, hf_kafka_header_tagged_field_tag, tvb, pinfo, offset, NULL);
+    offset = dissect_kafka_varuint(subtree, hf_kafka_tagged_field_tag, tvb, pinfo, offset, NULL);
 
-    offset = dissect_kafka_tagged_field_data(subtree, hf_kafka_header_tagged_field_data, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_tagged_field_data(subtree, hf_kafka_tagged_field_data, tvb, pinfo, offset, NULL, NULL);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -2035,8 +2031,8 @@ dissect_kafka_header_tagged_field(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 }
 
 static int
-dissect_kafka_header_tagged_fields(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                                   kafka_api_version_t api_version _U_)
+dissect_kafka_tagged_fields(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                               kafka_api_version_t api_version _U_)
 {
     gint64 count;
     guint len;
@@ -2044,8 +2040,8 @@ dissect_kafka_header_tagged_fields(tvbuff_t *tvb, packet_info *pinfo, proto_tree
     proto_tree *subtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_header_tagged_fields,
-                                     &subti, "Header tagged fields");
+                                     ett_kafka_tagged_fields,
+                                     &subti, "Tagged fields");
 
     len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &count, ENC_VARINT_PROTOBUF);
     if (len == 0) {
@@ -2058,65 +2054,12 @@ dissect_kafka_header_tagged_fields(tvbuff_t *tvb, packet_info *pinfo, proto_tree
      * Contrary to compact arrays, tagged fields store just count
      * https://cwiki.apache.org/confluence/display/KAFKA/KIP-482%3A+The+Kafka+Protocol+should+Support+Optional+Tagged+Fields
      */
-    offset = dissect_kafka_array_elements(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_header_tagged_field, (gint32)count);
+    offset = dissect_kafka_array_elements(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_tagged_field, (gint32)count);
 
     proto_item_set_end(subti, tvb, offset);
 
     return offset;
 }
-
-static int
-dissect_kafka_payload_tagged_field(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                                  kafka_api_version_t api_version _U_)
-{
-    proto_item *subti;
-    proto_tree *subtree;
-
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_payload_tagged_field,
-                                     &subti, "Field");
-
-    offset = dissect_kafka_varuint(subtree, hf_kafka_payload_tagged_field_tag, tvb, pinfo, offset, NULL);
-
-    offset = dissect_kafka_tagged_field_data(subtree, hf_kafka_payload_tagged_field_data, tvb, pinfo, offset, NULL, NULL);
-
-    proto_item_set_end(subti, tvb, offset);
-
-    return offset;
-
-}
-
-static int
-dissect_kafka_payload_tagged_fields(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                                   kafka_api_version_t api_version)
-{
-    gint64 count;
-    guint len;
-    proto_item *subti;
-    proto_tree *subtree;
-
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_payload_tagged_fields,
-                                     &subti, "Payload tagged fields");
-
-    len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &count, ENC_VARINT_PROTOBUF);
-    if (len == 0) {
-        expert_add_info(pinfo, subtree, &ei_kafka_bad_varint);
-        return -1;
-    }
-    offset += len;
-
-    /*
-     * Contrary to compact arrays, tagged fields store just count
-     * https://cwiki.apache.org/confluence/display/KAFKA/KIP-482%3A+The+Kafka+Protocol+should+Support+Optional+Tagged+Fields
-     */
-    offset = dissect_kafka_array_elements(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_payload_tagged_field, (gint32)count);
-
-    proto_item_set_end(subti, tvb, offset);
-
-    return offset;
-}
-
 
 /* OFFSET FETCH REQUEST/RESPONSE */
 
@@ -8100,7 +8043,7 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
         proto_tree_add_item(kafka_tree, hf_kafka_correlation_id, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
 
-        if (matcher->api_key == 7 && matcher->api_version == 0) {
+        if (matcher->api_key == KAFKA_CONTROLLED_SHUTDOWN && matcher->api_version == 0) {
             /*
              * Special case for ControlledShutdownRequest.
              * https://github.com/apache/kafka/blob/2.5.0/generator/src/main/java/org/apache/kafka/message/ApiMessageTypeGenerator.java#L268-L277
@@ -8112,8 +8055,8 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
         }
 
         if (matcher->flexible_api) {
-            /* version 2 header (flexible API) contains list of tagged fields */
-            offset = dissect_kafka_header_tagged_fields(tvb, pinfo, kafka_tree, offset, 2 /* 2 is flexible header version */);
+            /* version 2 request header (flexible API) contains list of tagged fields, last param is ignored */
+            offset = dissect_kafka_tagged_fields(tvb, pinfo, kafka_tree, offset, 0);
         }
 
         switch (matcher->api_key) {
@@ -8322,6 +8265,18 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                                 0, 0, matcher->api_version);
         proto_item_set_generated(ti);
         kafka_check_supported_api_version(pinfo, ti, matcher);
+
+        if (matcher->api_key == KAFKA_API_VERSIONS) {
+            /*
+             * Special case for ApiVersions.
+             * https://cwiki.apache.org/confluence/display/KAFKA/KIP-511%3A+Collect+and+Expose+Client%27s+Name+and+Version+in+the+Brokers
+             * https://github.com/apache/kafka/blob/2.5.0/generator/src/main/java/org/apache/kafka/message/ApiMessageTypeGenerator.java#L261-L267
+             * The code is materialized in ApiMessageTypes class.
+             */
+        } else if (matcher->flexible_api) {
+            /* version 1 response header (flexible API) contains list of tagged fields, last param is ignored */
+            offset = dissect_kafka_tagged_fields(tvb, pinfo, kafka_tree, offset, 0);
+        }
 
         switch (matcher->api_key) {
             case KAFKA_PRODUCE:
@@ -9264,24 +9219,18 @@ proto_register_kafka(void)
                 FT_INT8, BASE_DEC, VALS(election_types), 0,
                 NULL, HFILL }
         },
-        { &hf_kafka_header_tagged_field_tag,
-            { "Tag Value", "kafka.header_tagged_field_tag",
+        { &hf_kafka_tagged_field_tag,
+            { "Tag Value", "kafka.tagged_field_tag",
                 FT_UINT64, BASE_HEX, 0, 0,
                 NULL, HFILL }
         },
-        { &hf_kafka_header_tagged_field_data,
-            { "Tag Data", "kafka.header_tagged_field_data",
+        { &hf_kafka_tagged_field_data,
+            { "Tag Data", "kafka.tagged_field_data",
                 FT_BYTES, BASE_SHOW_ASCII_PRINTABLE, 0, 0,
                 NULL, HFILL }
         },
-        { &hf_kafka_payload_tagged_field_tag,
-            { "Tag Value", "kafka.payload_tagged_field_tag",
-                FT_UINT64, BASE_HEX, 0, 0,
                 NULL, HFILL }
         },
-        { &hf_kafka_payload_tagged_field_data,
-            { "Tag Data", "kafka.payload_tagged_field_data",
-                FT_BYTES, BASE_SHOW_ASCII_PRINTABLE, 0, 0,
                 NULL, HFILL }
         },
     };
@@ -9344,10 +9293,8 @@ proto_register_kafka(void)
         &ett_kafka_owner,
         &ett_kafka_tokens,
         &ett_kafka_token,
-        &ett_kafka_header_tagged_fields,
-        &ett_kafka_header_tagged_field,
-        &ett_kafka_payload_tagged_fields,
-        &ett_kafka_payload_tagged_field,
+        &ett_kafka_tagged_fields,
+        &ett_kafka_tagged_field,
     };
 
     static ei_register_info ei[] = {
