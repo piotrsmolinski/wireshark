@@ -865,11 +865,11 @@ kafka_get_api_info(kafka_api_key_t api_key)
  * have to be covered in the message parsing.
  */
 static gboolean
-kafka_is_api_version_flexible(const kafka_api_info_t *api_info, kafka_api_version_t api_version)
+kafka_is_api_version_flexible(kafka_api_key_t api_key, kafka_api_version_t api_version)
 {
-    DISSECTOR_ASSERT(api_info);
-
-    return !(api_info->flexible_since == -1 || api_version < api_info->flexible_since);
+    const kafka_api_info_t *api_info;
+    api_info = kafka_get_api_info(api_key);
+    return api_info != NULL && !(api_info->flexible_since == -1 || api_version < api_info->flexible_since);
 }
 
 static gboolean
