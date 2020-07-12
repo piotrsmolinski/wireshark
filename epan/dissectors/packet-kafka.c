@@ -384,7 +384,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_DESCRIBE_GROUPS,               "DescribeGroups",
       0, 4, 5 },
     { KAFKA_LIST_GROUPS,                   "ListGroups",
-      0, 2, 3 },
+      0, 3, 3 },
     { KAFKA_SASL_HANDSHAKE,                "SaslHandshake",
       0, 1, -1 },
     { KAFKA_API_VERSIONS,                  "ApiVersions",
@@ -5261,9 +5261,14 @@ dissect_kafka_describe_groups_response(tvbuff_t *tvb, packet_info *pinfo, proto_
 /* LIST_GROUPS REQUEST/RESPONSE */
 
 static int
-dissect_kafka_list_groups_request(tvbuff_t *tvb _U_, packet_info *pinfo _U_, proto_tree *tree _U_, int offset,
-                                  kafka_api_version_t api_version _U_)
+dissect_kafka_list_groups_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                  kafka_api_version_t api_version)
 {
+
+    if (api_version >= 3) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
+
     return offset;
 }
 
@@ -5279,12 +5284,26 @@ dissect_kafka_list_groups_response_group(tvbuff_t *tvb, packet_info *pinfo, prot
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group, &subti, "Group");
 
     /* group_id */
-    offset = dissect_kafka_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                  &group_start, &group_len);
+    if (api_version >= 3) {
+        offset = dissect_kafka_compact_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset,
+                                      &group_start, &group_len);
+    } else {
+        offset = dissect_kafka_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset,
+                                      &group_start, &group_len);
+    }
 
     /* protocol_type */
-    offset = dissect_kafka_string(subtree, hf_kafka_protocol_type, tvb, pinfo, offset,
-                                  &protocol_type_start, &protocol_type_len);
+    if (api_version >= 3) {
+        offset = dissect_kafka_compact_string(subtree, hf_kafka_protocol_type, tvb, pinfo, offset,
+                                      &protocol_type_start, &protocol_type_len);
+    } else {
+        offset = dissect_kafka_string(subtree, hf_kafka_protocol_type, tvb, pinfo, offset,
+                                      &protocol_type_start, &protocol_type_len);
+    }
+
+    if (api_version >= 3) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
+    }
 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Group-ID=%s, Protocol-Type=%s)",
@@ -5300,6 +5319,9 @@ static int
 dissect_kafka_list_groups_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                    kafka_api_version_t api_version)
 {
+    proto_item *subti;
+    proto_tree *subtree;
+
     if (api_version >= 1) {
         offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
@@ -5308,8 +5330,19 @@ dissect_kafka_list_groups_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
     /* [group] */
-    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                 &dissect_kafka_list_groups_response_group, NULL);
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_groups, &subti, "Groups");
+    if (api_version >= 3) {
+        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_list_groups_response_group, NULL);
+    } else {
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_list_groups_response_group, NULL);
+    }
+    proto_item_set_end(subti, tvb, offset);
+
+    if (api_version >= 3) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
 
     return offset;
 }
