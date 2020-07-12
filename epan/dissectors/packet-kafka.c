@@ -376,7 +376,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_LEAVE_GROUP,                   "LeaveGroup",
       0, 3, 4 },
     { KAFKA_SYNC_GROUP,                    "SyncGroup",
-      0, 3, 4 },
+      0, 5, 4 },
     { KAFKA_DESCRIBE_GROUPS,               "DescribeGroups",
       0, 4, 5 },
     { KAFKA_LIST_GROUPS,                   "ListGroups",
@@ -4746,11 +4746,24 @@ dissect_kafka_sync_group_request_group_assignment(tvbuff_t *tvb, packet_info *pi
                                      "Group Assignment");
 
     /* member_id */
-    offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
-                                  &member_start, &member_len);
+    if (api_version >= 4) {
+        offset = dissect_kafka_compact_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
+                                      &member_start, &member_len);
+    } else {
+        offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
+                                      &member_start, &member_len);
+    }
 
     /* member_assigment */
-    offset = dissect_kafka_bytes(subtree, hf_kafka_member_assignment, tvb, pinfo, offset, NULL, NULL);
+    if (api_version >= 4) {
+        offset = dissect_kafka_compact_bytes(subtree, hf_kafka_member_assignment, tvb, pinfo, offset, NULL, NULL);
+    } else {
+        offset = dissect_kafka_bytes(subtree, hf_kafka_member_assignment, tvb, pinfo, offset, NULL, NULL);
+    }
+
+    if (api_version >= 4) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
+    }
 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Member=%s)",
@@ -4770,28 +4783,63 @@ dissect_kafka_sync_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     int member_start, member_len;
 
     /* group_id */
-    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                  &group_start, &group_len);
+    if (api_version >= 4) {
+        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
+                                      &group_start, &group_len);
+    } else {
+        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
+                                      &group_start, &group_len);
+    }
 
     /* generation_id */
     proto_tree_add_item(tree, hf_kafka_generation_id, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
     /* member_id */
-    offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
-                                  &member_start, &member_len);
+    if (api_version >= 4) {
+        offset = dissect_kafka_compact_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
+                                      &member_start, &member_len);
+    } else {
+        offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
+                                      &member_start, &member_len);
+    }
 
-    if (api_version >= 3) {
-        /* instance_id */
+    /* instance_id */
+    if (api_version >= 4) {
+        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
+                                      NULL, NULL);
+    } else if (api_version >= 3) {
         offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
                                   NULL, NULL);
+    }
+
+    /* protocol_type */
+    if (api_version >= 5) {
+        offset = dissect_kafka_compact_string(tree, hf_kafka_protocol_type, tvb, pinfo, offset,
+                                              NULL, NULL);
+    }
+
+    /* protocol_name */
+    if (api_version >= 5) {
+        offset = dissect_kafka_compact_string(tree, hf_kafka_protocol_name, tvb, pinfo, offset,
+                                              NULL, NULL);
     }
 
     /* [group_assignment] */
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_assignments, &subti,
                                      "Group Assignments");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                 &dissect_kafka_sync_group_request_group_assignment, NULL);
+    if (api_version >= 4) {
+        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_sync_group_request_group_assignment, NULL);
+    } else {
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_sync_group_request_group_assignment, NULL);
+    }
+
+    if (api_version >= 4) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
+
     proto_item_set_end(subti, tvb, offset);
 
     col_append_fstr(pinfo->cinfo, COL_INFO,
@@ -4815,8 +4863,28 @@ dissect_kafka_sync_group_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
     /* error_code */
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
+    /* protocol_type */
+    if (api_version >= 5) {
+        offset = dissect_kafka_compact_string(tree, hf_kafka_protocol_type, tvb, pinfo, offset,
+                                              NULL, NULL);
+    }
+
+    /* protocol_name */
+    if (api_version >= 5) {
+        offset = dissect_kafka_compact_string(tree, hf_kafka_protocol_name, tvb, pinfo, offset,
+                                              NULL, NULL);
+    }
+
     /* member_assignment */
-    offset = dissect_kafka_bytes(tree, hf_kafka_member_assignment, tvb, pinfo, offset, NULL, NULL);
+    if (api_version >= 4) {
+        offset = dissect_kafka_compact_bytes(tree, hf_kafka_member_assignment, tvb, pinfo, offset, NULL, NULL);
+    } else {
+        offset = dissect_kafka_bytes(tree, hf_kafka_member_assignment, tvb, pinfo, offset, NULL, NULL);
+    }
+
+    if (api_version >= 4) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
 
     return offset;
 }
