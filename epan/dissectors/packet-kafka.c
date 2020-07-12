@@ -82,6 +82,8 @@ static int hf_kafka_batch_first_timestamp = -1;
 static int hf_kafka_batch_last_timestamp = -1;
 static int hf_kafka_batch_base_sequence = -1;
 static int hf_kafka_batch_size = -1;
+static int hf_kafka_batch_index = -1;
+static int hf_kafka_batch_index_error_message = -1;
 static int hf_kafka_message_key = -1;
 static int hf_kafka_message_value = -1;
 static int hf_kafka_message_compression_reduction = -1;
@@ -253,6 +255,8 @@ static int ett_kafka_token = -1;
 /* in Kafka 2.5 these structures have been added, but not yet used */
 static int ett_kafka_tagged_fields = -1;
 static int ett_kafka_tagged_field = -1;
+static int ett_kafka_record_errors = -1;
+static int ett_kafka_record_error = -1;
 
 static expert_field ei_kafka_request_missing = EI_INIT;
 static expert_field ei_kafka_unknown_api_key = EI_INIT;
@@ -348,7 +352,7 @@ typedef struct _kafka_api_info_t {
  */
 static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_PRODUCE,                       "Produce",
-      0, 7, -1 },
+      0, 8, -1 },
     { KAFKA_FETCH,                         "Fetch",
       0, 11, -1 },
     { KAFKA_OFFSETS,                       "Offsets",
@@ -1416,10 +1420,10 @@ dissect_kafka_record(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, in
     len = tvb_get_varint(tvb, offset, 5, &size, ENC_VARINT_ZIGZAG);
     if (len == 0) {
         expert_add_info(pinfo, record_ti, &ei_kafka_bad_varint);
-        return offset + 5;
+        return -1;
     } else if (size < 6) {
         expert_add_info(pinfo, record_ti, &ei_kafka_bad_record_length);
-        return offset + len;
+        return -1;
     }
 
     end_offset = offset + len + (gint)size;
@@ -1443,6 +1447,8 @@ dissect_kafka_record(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree, in
     if (offset != end_offset) {
         expert_add_info(pinfo, record_ti, &ei_kafka_bad_record_length);
     }
+
+    proto_item_set_end(record_ti, tvb, end_offset);
 
     return end_offset;
 }
@@ -3409,15 +3415,32 @@ dissect_kafka_produce_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
 }
 
 static int
-dissect_kafka_produce_response_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                                         kafka_api_version_t api_version _U_)
-{
+dissect_kafka_produce_response_partition_record_error(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                         kafka_api_version_t api_version _U_) {
     proto_item *ti;
     proto_tree *subtree;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_record_error, &ti, "Record Error");
+
+    proto_tree_add_item(subtree, hf_kafka_batch_index, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    offset = dissect_kafka_string(subtree, hf_kafka_batch_index_error_message, tvb, pinfo, offset, NULL, NULL);
+
+    proto_item_set_end(ti, tvb, offset);
+
+    return offset;
+
+}
+static int
+dissect_kafka_produce_response_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                         kafka_api_version_t api_version) {
+    proto_item *ti, *subti;
+    proto_tree *subtree, *subsubtree;
     kafka_packet_values_t packet_values;
     memset(&packet_values, 0, sizeof(packet_values));
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, 14, ett_kafka_partition, &ti, "Partition");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &ti, "Partition");
 
     offset = dissect_kafka_partition_id_ret(tvb, pinfo, subtree, offset, &packet_values.partition_id);
 
@@ -3433,6 +3456,19 @@ dissect_kafka_produce_response_partition(tvbuff_t *tvb, packet_info *pinfo, prot
         proto_tree_add_item(subtree, hf_kafka_log_start_offset, tvb, offset, 8, ENC_BIG_ENDIAN);
         offset += 8;
     }
+
+    if (api_version >= 8) {
+        subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_record_errors, &subti, "Record Errors");
+        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_produce_response_partition_record_error, NULL);
+        proto_item_set_end(subti, tvb, offset);
+    }
+
+    if (api_version >= 8) {
+        offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+    }
+
+    proto_item_set_end(ti, tvb, offset);
 
     proto_item_append_text(ti, " (ID=%u, Offset=%" G_GINT64_MODIFIER "i)",
                            packet_values.partition_id, packet_values.offset);
@@ -9130,6 +9166,16 @@ proto_register_kafka(void)
                 FT_UINT32, BASE_DEC, 0, 0,
                 NULL, HFILL }
         },
+        { &hf_kafka_batch_index,
+            { "Batch Index", "kafka.batch_index",
+                FT_UINT32, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_batch_index_error_message,
+            { "Batch Index Error Message", "kafka.batch_index_error_message",
+                FT_STRING, STR_UNICODE, 0, 0,
+                NULL, HFILL }
+        },
         { &hf_kafka_message_timestamp,
             { "Timestamp", "kafka.message_timestamp",
                FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0,
@@ -9727,6 +9773,8 @@ proto_register_kafka(void)
         &ett_kafka_token,
         &ett_kafka_tagged_fields,
         &ett_kafka_tagged_field,
+        &ett_kafka_record_errors,
+        &ett_kafka_record_error,
     };
 
     static ei_register_info ei[] = {
