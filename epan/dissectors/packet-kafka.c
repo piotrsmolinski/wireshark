@@ -392,7 +392,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_DELETE_RECORDS,                "DeleteRecords",
       0, 1, -1 },
     { KAFKA_INIT_PRODUCER_ID,              "InitProducerId",
-      0, 1, 2 },
+      0, 3, 2 },
     { KAFKA_OFFSET_FOR_LEADER_EPOCH,       "OffsetForLeaderEpoch",
       0, 3, -1 },
     { KAFKA_ADD_PARTITIONS_TO_TXN,         "AddPartitionsToTxn",
@@ -5697,12 +5697,30 @@ dissect_kafka_delete_records_response(tvbuff_t *tvb, packet_info *pinfo, proto_t
 
 static int
 dissect_kafka_init_producer_id_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                              kafka_api_version_t api_version _U_)
+                              kafka_api_version_t api_version)
 {
-    offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, NULL, NULL);
+    if (api_version >= 2) {
+        offset = dissect_kafka_compact_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, NULL, NULL);
+    } else {
+        offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, NULL, NULL);
+    }
 
     proto_tree_add_item(tree, hf_kafka_transaction_timeout, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
+
+    if (api_version >= 3) {
+        proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
+        offset += 8;
+    }
+
+    if (api_version >= 3) {
+        proto_tree_add_item(tree, hf_kafka_producer_epoch, tvb, offset, 8, ENC_BIG_ENDIAN);
+        offset += 4;
+    }
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
 
     return offset;
 }
@@ -5710,7 +5728,7 @@ dissect_kafka_init_producer_id_request(tvbuff_t *tvb, packet_info *pinfo, proto_
 
 static int
 dissect_kafka_init_producer_id_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                               kafka_api_version_t api_version _U_)
+                               kafka_api_version_t api_version)
 {
     offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
 
@@ -5721,6 +5739,10 @@ dissect_kafka_init_producer_id_response(tvbuff_t *tvb, packet_info *pinfo, proto
 
     proto_tree_add_item(tree, hf_kafka_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
 
     return offset;
 }
