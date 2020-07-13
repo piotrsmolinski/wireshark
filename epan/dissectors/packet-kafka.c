@@ -374,7 +374,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_FIND_COORDINATOR,              "FindCoordinator",
       0, 3, 3 },
     { KAFKA_JOIN_GROUP,                    "JoinGroup",
-      0, 6, 6 },
+      0, 7, 6 },
     { KAFKA_HEARTBEAT,                     "Heartbeat",
       0, 4, 4 },
     { KAFKA_LEAVE_GROUP,                   "LeaveGroup",
@@ -4643,6 +4643,11 @@ dissect_kafka_join_group_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
     /* generation_id */
     proto_tree_add_item(tree, hf_kafka_generation_id, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
+
+    /* group_protocol_type */
+    if (api_version >= 7) {
+        offset = dissect_kafka_compact_string(tree, hf_kafka_protocol_type, tvb, pinfo, offset, NULL, NULL);
+    }
 
     /* group_protocol */
     if (api_version >= 6) {
