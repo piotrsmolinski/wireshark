@@ -6033,8 +6033,8 @@ dissect_kafka_init_producer_id_request(tvbuff_t *tvb, packet_info *pinfo, proto_
     }
 
     if (api_version >= 3) {
-        proto_tree_add_item(tree, hf_kafka_producer_epoch, tvb, offset, 8, ENC_BIG_ENDIAN);
-        offset += 4;
+        proto_tree_add_item(tree, hf_kafka_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
+        offset += 2;
     }
 
     if (api_version >= 2) {
