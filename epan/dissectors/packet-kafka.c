@@ -145,6 +145,7 @@ static int hf_kafka_forgotten_topic_name = -1;
 static int hf_kafka_forgotten_topic_partition = -1;
 static int hf_kafka_fetch_session_id = -1;
 static int hf_kafka_fetch_session_epoch = -1;
+static int hf_kafka_require_stable_offset = -1;
 static int hf_kafka_record_header_key = -1;
 static int hf_kafka_record_header_value = -1;
 static int hf_kafka_record_attributes = -1;
@@ -2222,6 +2223,11 @@ dissect_kafka_offset_fetch_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree
     }
 
     offset = dissect_kafka_offset_fetch_request_topics(tvb, pinfo, tree, offset, api_version);
+
+    if (api_version >= 7) {
+        proto_tree_add_item(tree, hf_kafka_require_stable_offset, tvb, offset, 1, ENC_NA);
+        offset += 1;
+    }
 
     if (api_version >= 6) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -9778,6 +9784,11 @@ proto_register_kafka(void)
         { &hf_kafka_fetch_session_epoch,
             { "Fetch Session Epoch", "kafka.fetch_session_epoch",
                 FT_INT64, BASE_DEC, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_require_stable_offset,
+            { "Require Stable Offset", "kafka.require_stable_offset",
+                FT_BOOLEAN, BASE_NONE, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_record_header_key,
