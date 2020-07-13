@@ -437,7 +437,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_DESCRIBE_DELEGATION_TOKEN,     "DescribeDelegationToken",
       0, 1, 2 },
     { KAFKA_DELETE_GROUPS,                 "DeleteGroups",
-      0, 1, 2 },
+      0, 2, 2 },
     { KAFKA_ELECT_LEADERS,                 "ElectLeaders",
       0, 1, 2 },
     { KAFKA_INC_ALTER_CONFIGS,             "IncrementalAlterConfigs",
@@ -7996,10 +7996,14 @@ dissect_kafka_describe_delegation_token_response(tvbuff_t *tvb, packet_info *pin
 /* DELETE_GROUPS REQUEST/RESPONSE */
 
 static int
-dissect_kafka_delete_groups_request_group(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
-                                                      int offset, kafka_api_version_t api_version _U_)
+dissect_kafka_delete_groups_request_group(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                                      int offset, kafka_api_version_t api_version)
 {
-    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
+    if (api_version >= 2) {
+        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
+    } else {
+        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
+    }
 
     return offset;
 }
@@ -8015,8 +8019,17 @@ dissect_kafka_delete_groups_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
                                      ett_kafka_groups,
                                      &subti, "Groups");
 
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                 &dissect_kafka_delete_groups_request_group, NULL);
+    if (api_version >= 2) {
+        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_delete_groups_request_group, NULL);
+    } else {
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_delete_groups_request_group, NULL);
+    }
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8032,8 +8045,16 @@ dissect_kafka_delete_groups_response_group(tvbuff_t *tvb, packet_info *pinfo _U_
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group, &subti, "Group");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
+    if (api_version >= 2) {
+        offset = dissect_kafka_compact_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
+    } else {
+        offset = dissect_kafka_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
+    }
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
+    }
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8053,8 +8074,17 @@ dissect_kafka_delete_groups_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
                                      ett_kafka_groups,
                                      &subti, "Groups");
 
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                 &dissect_kafka_delete_groups_response_group, NULL);
+    if (api_version >= 2) {
+        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_delete_groups_response_group, NULL);
+    } else {
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_delete_groups_response_group, NULL);
+    }
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
 
     proto_item_set_end(subti, tvb, offset);
 
