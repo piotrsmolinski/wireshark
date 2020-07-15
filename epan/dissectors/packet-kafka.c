@@ -424,7 +424,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_DESCRIBE_LOG_DIRS,             "DescribeLogDirs",
       0, 1, -1 },
     { KAFKA_SASL_AUTHENTICATE,             "SaslAuthenticate",
-      0, 1, 2 },
+      0, 2, 2 },
     { KAFKA_CREATE_PARTITIONS,             "CreatePartitions",
       0, 2, 2 },
     { KAFKA_CREATE_DELEGATION_TOKEN,       "CreateDelegationToken",
@@ -7575,9 +7575,13 @@ dissect_kafka_create_partitions_response(tvbuff_t *tvb, packet_info *pinfo, prot
 
 static int
 dissect_kafka_sasl_authenticate_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                                         kafka_api_version_t api_version _U_)
+                                         kafka_api_version_t api_version)
 {
-    offset = dissect_kafka_bytes(tree, hf_kafka_sasl_auth_bytes, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_bytes(tree, hf_kafka_sasl_auth_bytes, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
 
     return offset;
 }
@@ -7589,13 +7593,16 @@ dissect_kafka_sasl_authenticate_response(tvbuff_t *tvb, packet_info *pinfo, prot
 {
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
-    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
 
-    offset = dissect_kafka_bytes(tree, hf_kafka_sasl_auth_bytes, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_bytes(tree, hf_kafka_sasl_auth_bytes, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
 
     if (api_version >= 1) {
-        proto_tree_add_item(tree, hf_kafka_session_lifetime_ms, tvb, offset, 8, ENC_BIG_ENDIAN);
-        offset += 8;
+        offset = dissect_kafka_int64(tree, hf_kafka_session_lifetime_ms, tvb, pinfo, offset, NULL);
+    }
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
     }
 
     return offset;
