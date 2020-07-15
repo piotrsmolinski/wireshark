@@ -434,7 +434,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_EXPIRE_DELEGATION_TOKEN,       "ExpireDelegationToken",
       0, 1, 2 },
     { KAFKA_DESCRIBE_DELEGATION_TOKEN,     "DescribeDelegationToken",
-      0, 1, 2 },
+      0, 2, 2 },
     { KAFKA_DELETE_GROUPS,                 "DeleteGroups",
       0, 2, 2 },
     { KAFKA_ELECT_LEADERS,                 "ElectLeaders",
@@ -7789,17 +7789,21 @@ dissect_kafka_expire_delegation_token_response(tvbuff_t *tvb, packet_info *pinfo
 /* DESCRIBE_DELEGATION_TOKEN REQUEST/RESPONSE */
 
 static int
-dissect_kafka_describe_delegation_token_request_owner(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
-                                                      int offset, kafka_api_version_t api_version _U_)
+dissect_kafka_describe_delegation_token_request_owner(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                                      int offset, kafka_api_version_t api_version)
 {
     proto_item *subti;
     proto_tree *subtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_owner, &subti, "Owner");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
+    }
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -7808,7 +7812,7 @@ dissect_kafka_describe_delegation_token_request_owner(tvbuff_t *tvb, packet_info
 
 static int
 dissect_kafka_describe_delegation_token_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                                              kafka_api_version_t api_version _U_)
+                                              kafka_api_version_t api_version)
 {
     proto_item *subti;
     proto_tree *subtree;
@@ -7816,26 +7820,32 @@ dissect_kafka_describe_delegation_token_request(tvbuff_t *tvb, packet_info *pinf
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_owners,
                                      &subti, "Owners");
-
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 2, api_version,
                                  &dissect_kafka_describe_delegation_token_request_owner, NULL);
-
     proto_item_set_end(subti, tvb, offset);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
 
     return offset;
 }
 
 static int
-dissect_kafka_describe_delegation_token_response_renewer(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
-                                                     int offset, kafka_api_version_t api_version _U_)
+dissect_kafka_describe_delegation_token_response_renewer(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                                     int offset, kafka_api_version_t api_version)
 {
     proto_item *subti;
     proto_tree *subtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_renewer, &subti, "Renewer");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, 0, NULL, NULL);
-    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
+    }
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -7851,27 +7861,28 @@ dissect_kafka_describe_delegation_token_response_token(tvbuff_t *tvb, packet_inf
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_token, &subti, "Token");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, 0, NULL, NULL);
-    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
 
-    proto_tree_add_item(subtree, hf_kafka_token_issue_timestamp, tvb, offset, 8, ENC_TIME_MSECS | ENC_BIG_ENDIAN);
-    offset += 8;
-    proto_tree_add_item(subtree, hf_kafka_token_expiry_timestamp, tvb, offset, 8, ENC_TIME_MSECS | ENC_BIG_ENDIAN);
-    offset += 8;
-    proto_tree_add_item(subtree, hf_kafka_token_max_timestamp, tvb, offset, 8, ENC_TIME_MSECS | ENC_BIG_ENDIAN);
-    offset += 8;
+    offset = dissect_kafka_timestamp(subtree, hf_kafka_token_issue_timestamp, tvb, pinfo, offset, NULL);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_token_id, tvb, pinfo, offset, 0, NULL, NULL);
-    offset = dissect_kafka_bytes(subtree, hf_kafka_token_hmac, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_timestamp(subtree, hf_kafka_token_expiry_timestamp, tvb, pinfo, offset, NULL);
+
+    offset = dissect_kafka_timestamp(subtree, hf_kafka_token_max_timestamp, tvb, pinfo, offset, NULL);
+
+    offset = dissect_kafka_string(subtree, hf_kafka_token_id, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
+    offset = dissect_kafka_bytes(subtree, hf_kafka_token_hmac, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                      ett_kafka_renewers,
                                      &subsubti, "Renewers");
-
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 2, api_version,
                                  &dissect_kafka_describe_delegation_token_response_renewer, NULL);
-
     proto_item_set_end(subsubti, tvb, offset);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
+    }
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -7880,7 +7891,7 @@ dissect_kafka_describe_delegation_token_response_token(tvbuff_t *tvb, packet_inf
 
 static int
 dissect_kafka_describe_delegation_token_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                                               kafka_api_version_t api_version _U_)
+                                               kafka_api_version_t api_version)
 {
     proto_item *subti;
     proto_tree *subtree;
@@ -7890,13 +7901,15 @@ dissect_kafka_describe_delegation_token_response(tvbuff_t *tvb, packet_info *pin
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_tokens,
                                      &subti, "Tokens");
-
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 2, api_version,
                                  &dissect_kafka_describe_delegation_token_response_token, NULL);
-
     proto_item_set_end(subti, tvb, offset);
 
     offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
 
     return offset;
 }
