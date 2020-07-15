@@ -950,7 +950,7 @@ dissect_kafka_array_elements(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo
 }
 
 static int
-dissect_kafka_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset,
+dissect_kafka_regular_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset,
                     kafka_api_version_t api_version,
                     int(*func)(tvbuff_t*, packet_info*, proto_tree*, int, kafka_api_version_t),
                     int *p_count)
@@ -1000,6 +1000,20 @@ dissect_kafka_compact_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo,
 }
 
 static int
+dissect_kafka_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset, int flexible,
+                            kafka_api_version_t api_version,
+                            int(*func)(tvbuff_t*, packet_info*, proto_tree*, int, kafka_api_version_t),
+                            int *p_count)
+{
+    if (flexible) {
+        return dissect_kafka_compact_array(tree, tvb, pinfo, offset, api_version, func, p_count);
+    } else {
+        return dissect_kafka_regular_array(tree, tvb, pinfo, offset, api_version, func, p_count);
+    }
+
+}
+
+static int
 dissect_kafka_varint(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
                      gint64 *p_value) _U_;
 static int
@@ -1045,7 +1059,7 @@ dissect_kafka_varuint(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info 
 }
 
 static int
-dissect_kafka_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
+dissect_kafka_regular_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
                      int *p_offset, int *p_length)
 {
     gint16 length;
@@ -1110,7 +1124,18 @@ dissect_kafka_compact_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packe
 }
 
 static int
-dissect_kafka_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
+dissect_kafka_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset, int flexible,
+                             int *p_offset, int *p_length)
+{
+    if (flexible) {
+        return dissect_kafka_compact_string(tree, hf_item, tvb, pinfo, offset, p_offset, p_length);
+    } else {
+        return dissect_kafka_regular_string(tree, hf_item, tvb, pinfo, offset, p_offset, p_length);
+    }
+}
+
+static int
+dissect_kafka_regular_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
                     int *p_offset, int *p_length)
 {
     gint16 length;
@@ -1174,6 +1199,17 @@ dissect_kafka_compact_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet
     }
 
     return offset;
+}
+
+static int
+dissect_kafka_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset, int flexible,
+                     int *p_offset, int *p_length)
+{
+    if (flexible) {
+        return dissect_kafka_compact_bytes(tree, hf_item, tvb, pinfo, offset, p_offset, p_length);
+    } else {
+        return dissect_kafka_regular_bytes(tree, hf_item, tvb, pinfo, offset, p_offset, p_length);
+    }
 }
 
 static int
@@ -1799,7 +1835,7 @@ dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
         offset += 8;
     }
 
-    offset = dissect_kafka_bytes(subtree, hf_kafka_message_key, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_regular_bytes(subtree, hf_kafka_message_key, tvb, pinfo, offset, NULL, NULL);
 
     /*
      * depending on the compression codec, the payload is the actual message payload (codes=none)
@@ -1807,7 +1843,7 @@ dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
      * is no such duality.
      */
     if (codec == 0) {
-        offset = dissect_kafka_bytes(subtree, hf_kafka_message_value, tvb, pinfo, offset, NULL, &length);
+        offset = dissect_kafka_regular_bytes(subtree, hf_kafka_message_value, tvb, pinfo, offset, NULL, &length);
     } else {
         length = tvb_get_ntohl(tvb, offset);
         offset += 4;
@@ -2158,17 +2194,9 @@ dissect_kafka_offset_fetch_request_topic(tvbuff_t *tvb, packet_info *pinfo, prot
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 6, &topic_start, &topic_len);
 
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_partition_id, &count);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_partition_id, &count);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 6, api_version, &dissect_kafka_partition_id, &count);
 
     if (api_version >= 6) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -2191,15 +2219,8 @@ dissect_kafka_offset_fetch_request_topics(tvbuff_t *tvb, packet_info *pinfo, pro
     gint32     count;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topics, &ti, "Topics");
-
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_offset_fetch_request_topic, &count);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_offset_fetch_request_topic, &count);
-    }
-
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 6, api_version,
+                                 &dissect_kafka_offset_fetch_request_topic, &count);
     proto_item_set_end(ti, tvb, offset);
 
     if (count < 0) {
@@ -2215,11 +2236,8 @@ static int
 dissect_kafka_offset_fetch_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                    kafka_api_version_t api_version)
 {
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
-    }
+
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, api_version >=6, NULL, NULL);
 
     offset = dissect_kafka_offset_fetch_request_topics(tvb, pinfo, tree, offset, api_version);
 
@@ -2289,11 +2307,8 @@ dissect_kafka_offset_fetch_response_partition(tvbuff_t *tvb, packet_info *pinfo,
         offset = dissect_kafka_leader_epoch(tvb, pinfo, subtree, offset, api_version);
     }
 
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_metadata, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_metadata, tvb, pinfo, offset, NULL, NULL);
-    }
+
+    offset = dissect_kafka_string(subtree, hf_kafka_metadata, tvb, pinfo, offset, api_version >= 6, NULL, NULL);
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
@@ -2325,18 +2340,13 @@ dissect_kafka_offset_fetch_response_topic(tvbuff_t *tvb, packet_info *pinfo, pro
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 6, &topic_start, &topic_len);
+
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 6, api_version,
+                                 &dissect_kafka_offset_fetch_response_partition, &count);
 
     if (api_version >= 6) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_offset_fetch_response_partition, &count);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_offset_fetch_response_partition, &count);
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
     }
 
     proto_item_set_end(ti, tvb, offset);
@@ -2360,15 +2370,14 @@ dissect_kafka_offset_fetch_response(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     }
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topics, &ti, "Topics");
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_offset_fetch_response_topic, &count);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_offset_fetch_response_topic, &count);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 6, api_version,
+                                 &dissect_kafka_offset_fetch_response_topic, &count);
     proto_item_set_end(ti, tvb, offset);
     proto_item_append_text(ti, " (%u topics)", count);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_error(tvb, pinfo, tree, offset);
+    }
 
     if (api_version >= 6) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -2388,11 +2397,7 @@ dissect_kafka_metadata_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
-    if (api_version >= 9) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 9, NULL, NULL);
 
     if (api_version >= 9) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -2408,13 +2413,9 @@ static int
 dissect_kafka_metadata_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                kafka_api_version_t api_version)
 {
-    if (api_version >= 9) {
-        offset = dissect_kafka_compact_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_metadata_request_topic, NULL);
-    } else {
-        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_metadata_request_topic, NULL);
-    }
+
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 9, api_version,
+                                 &dissect_kafka_metadata_request_topic, NULL);
 
     if (api_version >= 4) {
         proto_tree_add_item(tree, hf_kafka_allow_auto_topic_creation, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -2452,20 +2453,14 @@ dissect_kafka_metadata_broker(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
     proto_tree_add_item(subtree, hf_kafka_broker_nodeid, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
-    if (api_version >= 9) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_broker_host, tvb, pinfo, offset, &host_start, &host_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_broker_host, tvb, pinfo, offset, &host_start, &host_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_broker_host, tvb, pinfo, offset, api_version >= 9, &host_start, &host_len);
 
     broker_port = tvb_get_ntohl(tvb, offset);
     proto_tree_add_item(subtree, hf_kafka_broker_port, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
-    if (api_version >= 9) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_rack, tvb, pinfo, offset, NULL, NULL);
-    } else if (api_version >= 1) {
-        offset = dissect_kafka_string(subtree, hf_kafka_rack, tvb, pinfo, offset, NULL, NULL);
+    if (api_version >= 1) {
+        offset = dissect_kafka_string(subtree, hf_kafka_rack, tvb, pinfo, offset, api_version >= 9, NULL, NULL);
     }
 
     if (api_version >= 9) {
@@ -2529,28 +2524,16 @@ dissect_kafka_metadata_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     }
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_replicas, &subti, "Replicas");
-    if (api_version >= 9) {
-        offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_replica, NULL);
-    } else {
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_replica, NULL);
-    }
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 9, api_version, &dissect_kafka_metadata_replica, NULL);
     proto_item_set_end(subti, tvb, offset);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_isrs, &subti, "Caught-Up Replicas");
-    if (api_version >= 9) {
-        offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_isr, NULL);
-    } else {
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_isr, NULL);
-    }
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 9, api_version, &dissect_kafka_metadata_isr, NULL);
     proto_item_set_end(subti, tvb, offset);
 
     if (api_version >= 5) {
         subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_offline, &subti, "Offline Replicas");
-        if (api_version >= 9) {
-            offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_offline, NULL);
-        } else {
-            offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_offline, NULL);
-        }
+        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 9, api_version, &dissect_kafka_metadata_offline, NULL);
         proto_item_set_end(subti, tvb, offset);
     }
 
@@ -2576,11 +2559,8 @@ dissect_kafka_metadata_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    if (api_version >= 9) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &name_start, &name_length);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &name_start, &name_length);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 9, &name_start, &name_length);
+
     proto_item_append_text(ti, " (%s)",
                            tvb_get_string_enc(wmem_packet_scope(), tvb,
                            name_start, name_length, ENC_UTF_8));
@@ -2590,11 +2570,7 @@ dissect_kafka_metadata_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
         offset += 1;
     }
 
-    if (api_version >= 9) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_partition, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_partition, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 9, api_version, &dissect_kafka_metadata_partition, NULL);
 
     if (api_version >= 8) {
         proto_tree_add_item(subtree, hf_kafka_topic_authorized_ops, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -2623,18 +2599,12 @@ dissect_kafka_metadata_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
         offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
-    if (api_version >= 9) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_broker, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_broker, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 9, api_version, &dissect_kafka_metadata_broker, NULL);
 
     proto_item_set_end(ti, tvb, offset);
 
-    if (api_version >= 9) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_cluster_id, tvb, pinfo, offset, NULL, NULL);
-    } else if (api_version >= 2) {
-        offset = dissect_kafka_string(tree, hf_kafka_cluster_id, tvb, pinfo, offset, NULL, NULL);
+    if (api_version >= 2) {
+        offset = dissect_kafka_string(tree, hf_kafka_cluster_id, tvb, pinfo, offset, api_version >= 9, NULL, NULL);
     }
 
     if (api_version >= 1) {
@@ -2643,11 +2613,7 @@ dissect_kafka_metadata_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
     }
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topics, &ti, "Topic Metadata");
-    if (api_version >= 9) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_topic, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_metadata_topic, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 9, api_version, &dissect_kafka_metadata_topic, NULL);
     proto_item_set_end(ti, tvb, offset);
 
     if (api_version >= 8) {
@@ -2702,7 +2668,7 @@ dissect_kafka_leader_and_isr_request_partition_state(tvbuff_t *tvb, packet_info 
 
     /* topic */
     if (api_version < 2) {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
+        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0,
                                       &topic_start, &topic_len);
     }
 
@@ -2727,13 +2693,8 @@ dissect_kafka_leader_and_isr_request_partition_state(tvbuff_t *tvb, packet_info 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                         ett_kafka_isrs,
                                         &subsubti, "ISRs");
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version,
-                                             &dissect_kafka_leader_and_isr_request_isr, NULL);
-    } else {
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_leader_and_isr_request_isr, NULL);
-    }
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                 &dissect_kafka_leader_and_isr_request_isr, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
     /* zk_version */
@@ -2744,27 +2705,16 @@ dissect_kafka_leader_and_isr_request_partition_state(tvbuff_t *tvb, packet_info 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                         ett_kafka_replicas,
                                         &subsubti, "Current Replicas");
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version,
-                                             &dissect_kafka_leader_and_isr_request_replica, NULL);
-    } else {
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_leader_and_isr_request_replica, NULL);
-    }
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                 &dissect_kafka_leader_and_isr_request_replica, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
     if (api_version >= 3) {
-
         subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                             ett_kafka_replicas,
                                             &subsubti, "Adding Replicas");
-        if (api_version >= 4) {
-            offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version,
-                                                 &dissect_kafka_leader_and_isr_request_replica, NULL);
-        } else {
-            offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
-                                         &dissect_kafka_leader_and_isr_request_replica, NULL);
-        }
+        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                     &dissect_kafka_leader_and_isr_request_replica, NULL);
         proto_item_set_end(subsubti, tvb, offset);
     }
 
@@ -2772,13 +2722,8 @@ dissect_kafka_leader_and_isr_request_partition_state(tvbuff_t *tvb, packet_info 
         subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                             ett_kafka_replicas,
                                             &subsubti, "Removing Replicas");
-        if (api_version >= 4) {
-            offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version,
-                                                 &dissect_kafka_leader_and_isr_request_replica, NULL);
-        } else {
-            offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
-                                         &dissect_kafka_leader_and_isr_request_replica, NULL);
-        }
+        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                     &dissect_kafka_leader_and_isr_request_replica, NULL);
         proto_item_set_end(subsubti, tvb, offset);
     }
 
@@ -2819,22 +2764,12 @@ dissect_kafka_leader_and_isr_request_topic_state(tvbuff_t *tvb, packet_info *pin
                                      &subti, "Topic");
 
     /* topic */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
-                                      &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
-                                      &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 4,
+                                  &topic_start, &topic_len);
 
     /* [partition_state] */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_leader_and_isr_request_partition_state, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_leader_and_isr_request_partition_state, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                 &dissect_kafka_leader_and_isr_request_partition_state, NULL);
 
     if (api_version >= 4) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -2866,11 +2801,7 @@ dissect_kafka_leader_and_isr_request_live_leader(tvbuff_t *tvb, packet_info *pin
     offset += 4;
 
     /* host */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_broker_host, tvb, pinfo, offset, &host_start, &host_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_broker_host, tvb, pinfo, offset, &host_start, &host_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_broker_host, tvb, pinfo, offset,api_version >= 4,  &host_start, &host_len);
 
     /* port */
     broker_port = tvb_get_ntohl(tvb, offset);
@@ -2913,28 +2844,17 @@ dissect_kafka_leader_and_isr_request(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 
     if (api_version <= 1) {
         /* [partition_state] */
-        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
+        offset = dissect_kafka_array(tree, tvb, pinfo, offset, 0, api_version,
                                      &dissect_kafka_leader_and_isr_request_partition_state, NULL);
     } else {
         /* [topic_state] */
-        if (api_version >= 4 ) {
-            offset = dissect_kafka_compact_array(tree, tvb, pinfo, offset, api_version,
-                                         &dissect_kafka_leader_and_isr_request_topic_state, NULL);
-        } else {
-            offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                         &dissect_kafka_leader_and_isr_request_topic_state, NULL);
-        }
-
+        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                     &dissect_kafka_leader_and_isr_request_topic_state, NULL);
     }
 
     /* [live_leader] */
-    if (api_version >= 4 ) {
-        offset = dissect_kafka_compact_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_leader_and_isr_request_live_leader, NULL);
-    } else {
-        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_leader_and_isr_request_live_leader, NULL);
-    }
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                 &dissect_kafka_leader_and_isr_request_live_leader, NULL);
 
     if (api_version >= 4) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -2960,11 +2880,7 @@ dissect_kafka_leader_and_isr_response_partition(tvbuff_t *tvb, packet_info *pinf
                                      &subti, "Partition");
 
     /* topic */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 4, &topic_start, &topic_len);
 
     /* partition */
     partition = (gint32) tvb_get_ntohl(tvb, offset);
@@ -2996,13 +2912,8 @@ dissect_kafka_leader_and_isr_response(tvbuff_t *tvb, packet_info *pinfo, proto_t
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
     /* [partition] */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_leader_and_isr_response_partition, NULL);
-    } else {
-        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_leader_and_isr_response_partition, NULL);
-    }
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                 &dissect_kafka_leader_and_isr_response_partition, NULL);
 
     if (api_version >= 4) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -3026,22 +2937,13 @@ dissect_kafka_stop_replica_request_topic(tvbuff_t *tvb, packet_info *pinfo, prot
                                      &subti, "Topic");
 
     /* topic */
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 2, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                      ett_kafka_partitions,
                                      &subsubti, "Partitions");
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version,
-                                             &dissect_kafka_partition_id, NULL);
-    } else {
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_partition_id, NULL);
-    }
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 2, api_version,
+                                 &dissect_kafka_partition_id, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
     if (api_version >= 2) {
@@ -3070,7 +2972,7 @@ dissect_kafka_stop_replica_request_ungrouped_partition(tvbuff_t *tvb, packet_inf
                                      &subti, "Partition");
 
     /* topic */
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
 
     /* partition */
     partition = (gint32) tvb_get_ntohl(tvb, offset);
@@ -3119,7 +3021,7 @@ dissect_kafka_stop_replica_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree
         subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                          ett_kafka_partitions,
                                          &subti, "Ungrouped Partitions");
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                      &dissect_kafka_stop_replica_request_ungrouped_partition, NULL);
         proto_item_set_end(subti, tvb, offset);
     } else {
@@ -3127,13 +3029,8 @@ dissect_kafka_stop_replica_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree
         subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                          ett_kafka_topics,
                                          &subti, "Topics");
-        if (api_version >= 2) {
-            offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                         &dissect_kafka_stop_replica_request_topic, NULL);
-        } else {
-            offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                                 &dissect_kafka_stop_replica_request_topic, NULL);
-        }
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 2, api_version,
+                                             &dissect_kafka_stop_replica_request_topic, NULL);
         proto_item_set_end(subti, tvb, offset);
     }
 
@@ -3161,11 +3058,7 @@ dissect_kafka_stop_replica_response_partition(tvbuff_t *tvb, packet_info *pinfo,
                                      &subti, "Partition");
 
     /* topic */
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 2, &topic_start, &topic_len);
 
     /* partition */
     partition = (gint32) tvb_get_ntohl(tvb, offset);
@@ -3197,13 +3090,8 @@ dissect_kafka_stop_replica_response(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
     /* [partition] */
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_stop_replica_response_partition, NULL);
-    } else {
-        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_stop_replica_response_partition, NULL);
-    }
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 2, api_version,
+                                 &dissect_kafka_stop_replica_response_partition, NULL);
 
     if (api_version >= 2) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -3260,9 +3148,9 @@ dissect_kafka_fetch_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &name_start, &name_length);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &name_start, &name_length);
     count = tvb_get_ntohl(tvb, offset);
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_fetch_request_partition, NULL);
 
     proto_item_set_len(ti, offset - start_offset);
@@ -3292,9 +3180,9 @@ dissect_kafka_fetch_request_forgotten_topics_data(tvbuff_t *tvb, packet_info *pi
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_request_forgotten_topic, &ti, "Fetch Request Forgotten Topic Data");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_forgotten_topic_name, tvb, pinfo, offset, &name_start, &name_length);
+    offset = dissect_kafka_string(subtree, hf_kafka_forgotten_topic_name, tvb, pinfo, offset, 0, &name_start, &name_length);
     count = tvb_get_ntohl(tvb, offset);
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_fetch_request_forgottent_topic_partition, NULL);
 
     proto_item_set_len(ti, offset - start_offset);
@@ -3334,14 +3222,14 @@ dissect_kafka_fetch_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         offset += 4;
     }
 
-    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version, &dissect_kafka_fetch_request_topic, NULL);
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, 0, api_version, &dissect_kafka_fetch_request_topic, NULL);
 
     if (api_version >= 7) {
-        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version, &dissect_kafka_fetch_request_forgotten_topics_data, NULL);
+        offset = dissect_kafka_array(tree, tvb, pinfo, offset, 0, api_version, &dissect_kafka_fetch_request_forgotten_topics_data, NULL);
     }
 
     if (api_version >= 11) {
-        offset = dissect_kafka_string(tree, hf_kafka_rack, tvb, pinfo, offset, NULL, NULL);
+        offset = dissect_kafka_string(tree, hf_kafka_rack, tvb, pinfo, offset, 0, NULL, NULL);
     }
 
     return offset;
@@ -3378,7 +3266,7 @@ dissect_kafka_aborted_transactions(tvbuff_t *tvb, packet_info *pinfo _U_, proto_
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_aborted_transactions, &ti, "Aborted Transactions");
 
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_aborted_transaction, NULL);
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version, &dissect_kafka_aborted_transaction, NULL);
 
     proto_item_set_len(ti, offset - start_offset);
 
@@ -3449,10 +3337,9 @@ dissect_kafka_fetch_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
-    count = tvb_get_ntohl(tvb, offset);
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                 &dissect_kafka_fetch_response_partition, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
+                                 &dissect_kafka_fetch_response_partition, &count);
 
     proto_item_set_len(ti, offset - start_offset);
     proto_item_append_text(ti, " (%u partitions)", count);
@@ -3475,7 +3362,7 @@ dissect_kafka_fetch_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
         offset += 4;
     }
 
-    return dissect_kafka_array(tree, tvb, pinfo, offset, api_version, &dissect_kafka_fetch_response_topic, NULL);
+    return dissect_kafka_array(tree, tvb, pinfo, offset, 0, api_version, &dissect_kafka_fetch_response_topic, NULL);
 }
 
 /* PRODUCE REQUEST/RESPONSE */
@@ -3518,8 +3405,8 @@ dissect_kafka_produce_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_off, &topic_len);
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_off, &topic_len);
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_produce_request_partition, NULL);
 
     proto_item_append_text(ti, " (Name=%s)",
@@ -3534,7 +3421,7 @@ dissect_kafka_produce_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
                               kafka_api_version_t api_version)
 {
     if (api_version >= 3) {
-        offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, NULL, NULL);
+        offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, 0, NULL, NULL);
     }
 
     proto_tree_add_item(tree, hf_kafka_required_acks, tvb, offset, 2, ENC_BIG_ENDIAN);
@@ -3543,7 +3430,7 @@ dissect_kafka_produce_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
     proto_tree_add_item(tree, hf_kafka_timeout, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
-    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_produce_request_topic, NULL);
 
     return offset;
@@ -3560,7 +3447,7 @@ dissect_kafka_produce_response_partition_record_error(tvbuff_t *tvb, packet_info
     proto_tree_add_item(subtree, hf_kafka_batch_index, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
-    offset = dissect_kafka_string(subtree, hf_kafka_batch_index_error_message, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_batch_index_error_message, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_item_set_end(ti, tvb, offset);
 
@@ -3594,13 +3481,13 @@ dissect_kafka_produce_response_partition(tvbuff_t *tvb, packet_info *pinfo, prot
 
     if (api_version >= 8) {
         subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_record_errors, &subti, "Record Errors");
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                      &dissect_kafka_produce_response_partition_record_error, NULL);
         proto_item_set_end(subti, tvb, offset);
     }
 
     if (api_version >= 8) {
-        offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+        offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
     }
 
     proto_item_set_end(ti, tvb, offset);
@@ -3621,8 +3508,8 @@ dissect_kafka_produce_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_produce_response_partition, NULL);
 
     proto_item_set_len(ti, offset - start_offset);
@@ -3634,7 +3521,7 @@ static int
 dissect_kafka_produce_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                kafka_api_version_t api_version)
 {
-    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version, &dissect_kafka_produce_response_topic, NULL);
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, 0, api_version, &dissect_kafka_produce_response_topic, NULL);
 
     if (api_version >= 1) {
         offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
@@ -3677,20 +3564,19 @@ dissect_kafka_offsets_request_partition(tvbuff_t *tvb, packet_info *pinfo, proto
 }
 
 static int
-dissect_kafka_offsets_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int start_offset,
+dissect_kafka_offsets_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                     kafka_api_version_t api_version)
 {
     proto_item *ti;
     proto_tree *subtree;
-    int         offset = start_offset;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_offsets_request_partition, NULL);
 
-    proto_item_set_len(ti, offset - start_offset);
+    proto_item_set_end(ti, tvb, offset);
 
     return offset;
 }
@@ -3707,7 +3593,7 @@ dissect_kafka_offsets_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
         offset += 1;
     }
 
-    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version, &dissect_kafka_offsets_request_topic, NULL);
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, 0, api_version, &dissect_kafka_offsets_request_topic, NULL);
 
     return offset;
 }
@@ -3728,7 +3614,7 @@ dissect_kafka_offsets_response_partition(tvbuff_t *tvb, packet_info *pinfo, prot
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
     if (api_version == 0) {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version, &dissect_kafka_offset, NULL);
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version, &dissect_kafka_offset, NULL);
     }
     else if (api_version >= 1) {
         offset = dissect_kafka_offset_time(tvb, pinfo, subtree, offset, api_version);
@@ -3757,8 +3643,8 @@ dissect_kafka_offsets_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_offsets_response_partition, NULL);
 
     proto_item_set_len(ti, offset - start_offset);
@@ -3776,7 +3662,7 @@ dissect_kafka_offsets_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
         offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
     }
 
-    return dissect_kafka_array(tree, tvb, pinfo, offset, api_version, &dissect_kafka_offsets_response_topic, NULL);
+    return dissect_kafka_array(tree, tvb, pinfo, offset, 0, api_version, &dissect_kafka_offsets_response_topic, NULL);
 }
 
 /* API_VERSIONS REQUEST/RESPONSE */
@@ -3878,13 +3764,8 @@ dissect_kafka_api_versions_response(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
     /* [api_version] */
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_api_versions_response_api_version, NULL);
-    } else {
-        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_api_versions_response_api_version, NULL);
-    }
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 3, api_version,
+                                 &dissect_kafka_api_versions_response_api_version, NULL);
 
     if (api_version >= 1) {
         offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
@@ -3936,7 +3817,7 @@ dissect_kafka_update_metadata_request_partition_state(tvbuff_t *tvb, packet_info
 
     if (api_version < 5) {
         /* topic */
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
+        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0,
                                       &topic_start, &topic_len);
     }
 
@@ -3961,7 +3842,7 @@ dissect_kafka_update_metadata_request_partition_state(tvbuff_t *tvb, packet_info
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                         ett_kafka_isrs,
                                         &subsubti, "ISRs");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_update_metadata_request_isr, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
@@ -3973,7 +3854,7 @@ dissect_kafka_update_metadata_request_partition_state(tvbuff_t *tvb, packet_info
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                         ett_kafka_replicas,
                                         &subsubti, "Replicas");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_update_metadata_request_replica, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
@@ -4003,10 +3884,10 @@ dissect_kafka_update_metadata_request_topic_state(tvbuff_t *tvb, packet_info *pi
                                      ett_kafka_topic,
                                      &subti, "Topic");
     /* topic */
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0,
                                   &topic_start, &topic_len);
 
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_update_metadata_request_partition_state, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -4036,11 +3917,11 @@ dissect_kafka_update_metadata_request_end_point(tvbuff_t *tvb, packet_info *pinf
     offset += 4;
 
     /* host */
-    offset = dissect_kafka_string(subtree, hf_kafka_broker_host, tvb, pinfo, offset, &host_start, &host_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_broker_host, tvb, pinfo, offset, 0, &host_start, &host_len);
 
     if (api_version >= 3) {
         /* listener_name */
-        offset = dissect_kafka_string(subtree, hf_kafka_listener_name, tvb, pinfo, offset, NULL, NULL);
+        offset = dissect_kafka_string(subtree, hf_kafka_listener_name, tvb, pinfo, offset, 0, NULL, NULL);
     }
 
     /* security_protocol_type */
@@ -4080,7 +3961,7 @@ dissect_kafka_update_metadata_request_live_leader(tvbuff_t *tvb, packet_info *pi
         gint32 broker_port;
 
         /* host */
-        offset = dissect_kafka_string(subtree, hf_kafka_broker_host, tvb, pinfo, offset, &host_start, &host_len);
+        offset = dissect_kafka_string(subtree, hf_kafka_broker_host, tvb, pinfo, offset, 0, &host_start, &host_len);
 
         /* port */
         broker_port = (gint32) tvb_get_ntohl(tvb, offset);
@@ -4094,12 +3975,12 @@ dissect_kafka_update_metadata_request_live_leader(tvbuff_t *tvb, packet_info *pi
                                broker_port);
     } else if (api_version >= 1) {
         /* [end_point] */
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                      &dissect_kafka_update_metadata_request_end_point, NULL);
 
         if (api_version >= 2) {
             /* rack */
-            offset = dissect_kafka_string(subtree, hf_kafka_rack, tvb, pinfo, offset, NULL, NULL);
+            offset = dissect_kafka_string(subtree, hf_kafka_rack, tvb, pinfo, offset, 0, NULL, NULL);
         }
 
         proto_item_append_text(subti, " (node %d)",
@@ -4134,16 +4015,16 @@ dissect_kafka_update_metadata_request(tvbuff_t *tvb, packet_info *pinfo, proto_t
 
     if (api_version >= 5) {
         /* [topic_state] */
-        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
+        offset = dissect_kafka_array(tree, tvb, pinfo, offset, 0, api_version,
                                      &dissect_kafka_update_metadata_request_topic_state, NULL);
     } else {
         /* [partition_state] */
-        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
+        offset = dissect_kafka_array(tree, tvb, pinfo, offset, 0, api_version,
                                      &dissect_kafka_update_metadata_request_partition_state, NULL);
     }
 
     /* [live_leader] */
-    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_update_metadata_request_live_leader, NULL);
 
     col_append_fstr(pinfo->cinfo, COL_INFO, " (Controller-ID=%d)", controller_id);
@@ -4202,13 +4083,8 @@ dissect_kafka_controlled_shutdown_response_partition_remaining(tvbuff_t *tvb, pa
                                      "Partition Remaining");
 
     /* topic */
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
-                                      &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
-                                      &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 3,
+                                  &topic_start, &topic_len);
 
     /* partition */
     partition = (gint32) tvb_get_ntohl(tvb, offset);
@@ -4236,13 +4112,8 @@ dissect_kafka_controlled_shutdown_response(tvbuff_t *tvb, packet_info *pinfo, pr
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
     /* [partition_remaining] */
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_controlled_shutdown_response_partition_remaining, NULL);
-    } else {
-        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_controlled_shutdown_response_partition_remaining, NULL);
-    }
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 3, api_version,
+                                 &dissect_kafka_controlled_shutdown_response_partition_remaining, NULL);
 
     if (api_version >= 3) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -4287,11 +4158,7 @@ dissect_kafka_offset_commit_request_partition(tvbuff_t *tvb, packet_info *pinfo,
     }
 
     /* metadata */
-    if (api_version >= 8) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_metadata, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_metadata, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_metadata, tvb, pinfo, offset, api_version >= 8, NULL, NULL);
 
     if (api_version >= 8) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -4315,22 +4182,11 @@ dissect_kafka_offset_commit_request_topic(tvbuff_t *tvb, packet_info *pinfo, pro
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
     /* topic */
-    if (api_version >= 8) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
-                                      &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
-                                      &topic_start, &topic_len);
-    }
-
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 8,
+                                  &topic_start, &topic_len);
     /* [partition] */
-    if (api_version >= 8) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_offset_commit_request_partition, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_offset_commit_request_partition, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 8, api_version,
+                                 &dissect_kafka_offset_commit_request_partition, NULL);
 
     if (api_version >= 8) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -4351,13 +4207,8 @@ dissect_kafka_offset_commit_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     int group_start, group_len;
 
     /* group_id */
-    if (api_version >= 8) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                      &group_start, &group_len);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                      &group_start, &group_len);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, api_version >= 8,
+                                  &group_start, &group_len);
 
     if (api_version >= 1) {
         /* group_generation_id */
@@ -4366,17 +4217,13 @@ dissect_kafka_offset_commit_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     }
 
     /* member_id */
-    if (api_version >= 8) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_member_id, tvb, pinfo, offset, NULL, NULL);
-    } else if (api_version >= 1) {
-        offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset, NULL, NULL);
+    if (api_version >= 1) {
+        offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset, api_version >= 8, NULL, NULL);
     }
 
     /* instance_id */
-    if (api_version >= 8) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset, NULL, NULL);
-    } else if (api_version >= 7) {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset, NULL, NULL);
+    if (api_version >= 7) {
+        offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset, api_version >= 8, NULL, NULL);
     }
 
     /* retention_time */
@@ -4386,13 +4233,8 @@ dissect_kafka_offset_commit_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     }
 
     /* [topic] */
-    if (api_version >= 8) {
-        offset = dissect_kafka_compact_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_offset_commit_request_topic, NULL);
-    } else {
-        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_offset_commit_request_topic, NULL);
-    }
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 8, api_version,
+                                 &dissect_kafka_offset_commit_request_topic, NULL);
 
     if (api_version >= 8) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -4448,22 +4290,12 @@ dissect_kafka_offset_commit_response_response(tvbuff_t *tvb, packet_info *pinfo,
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
     /* topic */
-    if (api_version >= 8) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
-                                      &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
-                                      &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 8,
+                                  &topic_start, &topic_len);
 
     /* [partition_response] */
-    if (api_version >= 8) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_offset_commit_response_partition_response, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_offset_commit_response_partition_response, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 8, api_version,
+                                 &dissect_kafka_offset_commit_response_partition_response, NULL);
 
     if (api_version >= 8) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -4486,13 +4318,8 @@ dissect_kafka_offset_commit_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
     }
 
     /* [responses] */
-    if (api_version >= 8) {
-        offset = dissect_kafka_compact_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_offset_commit_response_response, NULL);
-    } else {
-        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_offset_commit_response_response, NULL);
-    }
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 8, api_version,
+                                 &dissect_kafka_offset_commit_response_response, NULL);
 
     if (api_version >= 8) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -4511,7 +4338,7 @@ dissect_kafka_find_coordinator_request(tvbuff_t *tvb, packet_info *pinfo, proto_
 
     if (api_version == 0) {
         /* group_id */
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
+        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, 0,
                                       &group_start, &group_len);
 
         col_append_fstr(pinfo->cinfo, COL_INFO,
@@ -4520,13 +4347,8 @@ dissect_kafka_find_coordinator_request(tvbuff_t *tvb, packet_info *pinfo, proto_
                                            group_start, group_len, ENC_UTF_8));
     } else {
 
-        if (api_version >= 3) {
-            offset = dissect_kafka_compact_string(tree, hf_kafka_coordinator_key, tvb, pinfo, offset,
-                                          NULL, NULL);
-        } else {
-            offset = dissect_kafka_string(tree, hf_kafka_coordinator_key, tvb, pinfo, offset,
-                                          NULL, NULL);
-        }
+        offset = dissect_kafka_string(tree, hf_kafka_coordinator_key, tvb, pinfo, offset, api_version >= 3,
+                                      NULL, NULL);
 
         proto_tree_add_item(tree, hf_kafka_coordinator_type, tvb, offset, 1, ENC_NA);
         offset += 1;
@@ -4558,15 +4380,10 @@ dissect_kafka_find_coordinator_response_coordinator(tvbuff_t *tvb, packet_info *
     offset += 4;
 
     /* host */
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_broker_host, tvb, pinfo, offset,
-                                      &host_start, &host_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_broker_host, tvb, pinfo, offset,
-                                      &host_start, &host_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_broker_host, tvb, pinfo, offset, api_version >= 3,
+                                  &host_start, &host_len);
 
-    /* port */
+     /* port */
     port = (gint32) tvb_get_ntohl(tvb, offset);
     proto_tree_add_item(subtree, hf_kafka_broker_port, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
@@ -4597,11 +4414,8 @@ dissect_kafka_find_coordinator_response(tvbuff_t *tvb, packet_info *pinfo, proto
     /* error_code */
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_error_message, tvb, pinfo, offset,
-                                      NULL, NULL);
-    } else if (api_version >= 1) {
-        offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset,
+    if (api_version >= 1) {
+        offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, api_version >= 3,
                                       NULL, NULL);
     }
 
@@ -4629,20 +4443,11 @@ dissect_kafka_join_group_request_group_protocols(tvbuff_t *tvb, packet_info *pin
                                      "Group Protocol");
 
     /* protocol_name */
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_protocol_name, tvb, pinfo, offset,
-                                      &protocol_start, &protocol_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_protocol_name, tvb, pinfo, offset,
-                                      &protocol_start, &protocol_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_protocol_name, tvb, pinfo, offset, api_version >= 6,
+                                  &protocol_start, &protocol_len);
 
     /* protocol_metadata */
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_bytes(subtree, hf_kafka_protocol_metadata, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_bytes(subtree, hf_kafka_protocol_metadata, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_bytes(subtree, hf_kafka_protocol_metadata, tvb, pinfo, offset, api_version >= 6, NULL, NULL);
 
     if (api_version >= 6) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -4666,13 +4471,8 @@ dissect_kafka_join_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     int member_start, member_len;
 
     /* group_id */
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                      &group_start, &group_len);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                      &group_start, &group_len);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, api_version >= 6,
+                                  &group_start, &group_len);
 
     /* session_timeout */
     proto_tree_add_item(tree, hf_kafka_session_timeout, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -4685,40 +4485,23 @@ dissect_kafka_join_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     }
 
     /* member_id */
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset, api_version >= 6,
+                                  &member_start, &member_len);
 
     /* instance id */
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
-                                      NULL, NULL);
-    } else if (api_version >= 5) {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
+    if (api_version >= 5) {
+        offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset, api_version >= 6,
                                       NULL, NULL);
     }
 
     /* protocol_type */
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_protocol_type, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_protocol_type, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_protocol_type, tvb, pinfo, offset, api_version >= 6, NULL, NULL);
 
     /* [group_protocols] */
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_protocols, &subti,
                                      "Group Protocols");
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_join_group_request_group_protocols, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_join_group_request_group_protocols, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 6, api_version,
+                                 &dissect_kafka_join_group_request_group_protocols, NULL);
     proto_item_set_end(subti, tvb, offset);
 
     col_append_fstr(pinfo->cinfo, COL_INFO,
@@ -4746,29 +4529,17 @@ dissect_kafka_join_group_response_member(tvbuff_t *tvb, packet_info *pinfo, prot
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_member, &subti, "Member");
 
     /* member_id */
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset, api_version >= 6,
+                                  &member_start, &member_len);
 
     /* instance id */
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
-                                      NULL, NULL);
-    } else if (api_version >= 5) {
-        offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
+    if (api_version >= 5) {
+        offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset, api_version >= 6,
                                       NULL, NULL);
     }
 
     /* member_metadata */
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_bytes(subtree, hf_kafka_member_metadata, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_bytes(subtree, hf_kafka_member_metadata, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_bytes(subtree, hf_kafka_member_metadata, tvb, pinfo, offset, api_version >= 6, NULL, NULL);
 
     if (api_version >= 6) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -4803,39 +4574,22 @@ dissect_kafka_join_group_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 
     /* group_protocol_type */
     if (api_version >= 7) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_protocol_type, tvb, pinfo, offset, NULL, NULL);
+        offset = dissect_kafka_string(tree, hf_kafka_protocol_type, tvb, pinfo, offset, 1,NULL, NULL);
     }
 
     /* group_protocol */
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_protocol_name, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_protocol_name, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_protocol_name, tvb, pinfo, offset, api_version >= 6, NULL, NULL);
 
     /* leader_id */
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_group_leader_id, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_group_leader_id, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_group_leader_id, tvb, pinfo, offset, api_version >= 6, NULL, NULL);
 
     /* member_id */
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_member_id, tvb, pinfo, offset, &member_start, &member_len);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset, &member_start, &member_len);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset, api_version >= 6, &member_start, &member_len);
 
     /* [member] */
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_members, &subti, "Members");
-    if (api_version >= 6) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_join_group_response_member, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_join_group_response_member, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 6, api_version,
+                                 &dissect_kafka_join_group_response_member, NULL);
     proto_item_set_end(subti, tvb, offset);
 
     col_append_fstr(pinfo->cinfo, COL_INFO,
@@ -4860,33 +4614,20 @@ dissect_kafka_heartbeat_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
     int member_start, member_len;
 
     /* group_id */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                      &group_start, &group_len);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                      &group_start, &group_len);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, api_version >= 4,
+                                  &group_start, &group_len);
 
     /* group_generation_id */
     proto_tree_add_item(tree, hf_kafka_generation_id, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
     /* member_id */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset, api_version >= 4,
+                                  &member_start, &member_len);
 
     /* instance_id */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
-                                      NULL, NULL);
-    } else if (api_version >= 3) {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
+    if (api_version >= 3) {
+        offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset, api_version >= 4,
                                       NULL, NULL);
     }
 
@@ -4936,22 +4677,12 @@ dissect_kafka_leave_group_request_member(tvbuff_t *tvb, packet_info *pinfo, prot
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_member, &subti, "Member");
 
     /* member_id */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset, api_version >= 4,
+                                  &member_start, &member_len);
 
     /* instance_id */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
-                                      &instance_start, &instance_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
-                                      &instance_start, &instance_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset, api_version >= 4,
+                                  &instance_start, &instance_len);
 
     if (api_version >= 4) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -4986,18 +4717,13 @@ dissect_kafka_leave_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
     proto_tree *subtree;
 
     /* group_id */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                      &group_start, &group_len);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                      &group_start, &group_len);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, api_version >= 4,
+                                  &group_start, &group_len);
 
     if (api_version >= 0 && api_version <= 2) {
 
         /* member_id */
-        offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
+        offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset, 0,
                                       &member_start, &member_len);
 
         col_append_fstr(pinfo->cinfo, COL_INFO,
@@ -5011,13 +4737,8 @@ dissect_kafka_leave_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 
         // KIP-345
         subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_members, &subti, "Members");
-        if (api_version >= 4) {
-            offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                         &dissect_kafka_leave_group_request_member, NULL);
-        } else {
-            offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                         &dissect_kafka_leave_group_request_member, NULL);
-        }
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                     &dissect_kafka_leave_group_request_member, NULL);
         proto_item_set_end(subti, tvb, offset);
 
         col_append_fstr(pinfo->cinfo, COL_INFO,
@@ -5046,22 +4767,12 @@ dissect_kafka_leave_group_response_member(tvbuff_t *tvb, packet_info *pinfo, pro
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_member, &subti, "Member");
 
     /* member_id */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset, api_version >= 4,
+                                  &member_start, &member_len);
 
     /* instance_id */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
-                                      &instance_start, &instance_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
-                                      &instance_start, &instance_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset, api_version >= 4,
+                                  &instance_start, &instance_len);
 
     /* error_code */
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
@@ -5107,13 +4818,8 @@ dissect_kafka_leave_group_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 
         // KIP-345
         subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_members, &subti, "Members");
-        if (api_version >= 4) {
-            offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                         &dissect_kafka_leave_group_response_member, NULL);
-        } else {
-            offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                         &dissect_kafka_leave_group_response_member, NULL);
-        }
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                     &dissect_kafka_leave_group_response_member, NULL);
         proto_item_set_end(subti, tvb, offset);
 
     }
@@ -5139,20 +4845,11 @@ dissect_kafka_sync_group_request_group_assignment(tvbuff_t *tvb, packet_info *pi
                                      "Group Assignment");
 
     /* member_id */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset, api_version >= 4,
+                                  &member_start, &member_len);
 
     /* member_assigment */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_bytes(subtree, hf_kafka_member_assignment, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_bytes(subtree, hf_kafka_member_assignment, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_bytes(subtree, hf_kafka_member_assignment, tvb, pinfo, offset, api_version >= 4, NULL, NULL);
 
     if (api_version >= 4) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -5176,58 +4873,38 @@ dissect_kafka_sync_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
     int member_start, member_len;
 
     /* group_id */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                      &group_start, &group_len);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                      &group_start, &group_len);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, api_version >= 4,
+                                  &group_start, &group_len);
 
     /* generation_id */
     proto_tree_add_item(tree, hf_kafka_generation_id, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
     /* member_id */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset, api_version >= 4,
+                                  &member_start, &member_len);
 
     /* instance_id */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
-                                      NULL, NULL);
-    } else if (api_version >= 3) {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
-                                  NULL, NULL);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset, api_version >= 4,
+                              NULL, NULL);
 
     /* protocol_type */
     if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_protocol_type, tvb, pinfo, offset,
+        offset = dissect_kafka_string(tree, hf_kafka_protocol_type, tvb, pinfo, offset, 1,
                                               NULL, NULL);
     }
 
     /* protocol_name */
     if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_protocol_name, tvb, pinfo, offset,
+        offset = dissect_kafka_string(tree, hf_kafka_protocol_name, tvb, pinfo, offset, 1,
                                               NULL, NULL);
     }
 
     /* [group_assignment] */
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_assignments, &subti,
                                      "Group Assignments");
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_sync_group_request_group_assignment, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_sync_group_request_group_assignment, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                 &dissect_kafka_sync_group_request_group_assignment, NULL);
 
     if (api_version >= 4) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -5269,11 +4946,7 @@ dissect_kafka_sync_group_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
     }
 
     /* member_assignment */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_bytes(tree, hf_kafka_member_assignment, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_bytes(tree, hf_kafka_member_assignment, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_bytes(tree, hf_kafka_member_assignment, tvb, pinfo, offset, api_version >= 4, NULL, NULL);
 
     if (api_version >= 4) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -5289,11 +4962,7 @@ dissect_kafka_describe_groups_request_group_id(tvbuff_t *tvb, packet_info *pinfo
                                               int offset, kafka_api_version_t api_version _U_)
 {
     /* group_id */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, api_version >= 5, NULL, NULL);
 
     return offset;
 }
@@ -5303,13 +4972,8 @@ dissect_kafka_describe_groups_request(tvbuff_t *tvb, packet_info *pinfo, proto_t
                                       kafka_api_version_t api_version)
 {
     /* [group_id] */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_describe_groups_request_group_id, NULL);
-    } else {
-        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_describe_groups_request_group_id, NULL);
-    }
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 5, api_version,
+                                 &dissect_kafka_describe_groups_request_group_id, NULL);
 
     if (api_version >= 3) {
         proto_tree_add_item(tree, hf_kafka_include_group_authorized_ops, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -5335,50 +4999,26 @@ dissect_kafka_describe_groups_response_member(tvbuff_t *tvb, packet_info *pinfo,
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_member, &subti, "Member");
 
     /* member_id */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset,
-                                      &member_start, &member_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, pinfo, offset, api_version >= 5,
+                                  &member_start, &member_len);
 
     /* instance_id */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
-                                      &instance_start, &instance_len);
-    } else if (api_version >= 4) {
-        offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset,
+    if (api_version >= 4) {
+        offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, pinfo, offset, api_version >= 5,
                                       &instance_start, &instance_len);
     }
 
     /* client_id */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_client_id, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_client_id, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_client_id, tvb, pinfo, offset, api_version >= 5, NULL, NULL);
 
     /* client_host */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_client_host, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_client_host, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_client_host, tvb, pinfo, offset, api_version >= 5, NULL, NULL);
 
     /* member_metadata */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_bytes(subtree, hf_kafka_member_metadata, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_bytes(subtree, hf_kafka_member_metadata, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_bytes(subtree, hf_kafka_member_metadata, tvb, pinfo, offset, api_version >= 5, NULL, NULL);
 
     /* member_assignment */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_bytes(subtree, hf_kafka_member_assignment, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_bytes(subtree, hf_kafka_member_assignment, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_bytes(subtree, hf_kafka_member_assignment, tvb, pinfo, offset, api_version >= 5, NULL, NULL);
 
     if (api_version >= 5) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -5414,45 +5054,23 @@ dissect_kafka_describe_groups_response_group(tvbuff_t *tvb, packet_info *pinfo, 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
     /* group_id */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                      &group_start, &group_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                      &group_start, &group_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset, api_version >= 5,
+                                  &group_start, &group_len);
 
     /* state */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_group_state, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_group_state, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_group_state, tvb, pinfo, offset, api_version >= 5, NULL, NULL);
 
     /* protocol_type */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_protocol_type, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_protocol_type, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_protocol_type, tvb, pinfo, offset, api_version >= 5, NULL, NULL);
 
     /* protocol */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_protocol_name, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_protocol_name, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_protocol_name, tvb, pinfo, offset, api_version >= 5, NULL, NULL);
 
     /* [member] */
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_group_members,
                                         &subsubti, "Members");
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_describe_groups_response_member, NULL);
-    } else {
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_describe_groups_response_member, NULL);
-    }
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 5, api_version,
+                                 &dissect_kafka_describe_groups_response_member, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
     if (api_version >= 3) {
@@ -5481,13 +5099,8 @@ dissect_kafka_describe_groups_response(tvbuff_t *tvb, packet_info *pinfo, proto_
     }
 
     /* [group] */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_describe_groups_response_group, NULL);
-    } else {
-        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_describe_groups_response_group, NULL);
-    }
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 5, api_version,
+                                 &dissect_kafka_describe_groups_response_group, NULL);
 
     if (api_version >= 5) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -5522,22 +5135,12 @@ dissect_kafka_list_groups_response_group(tvbuff_t *tvb, packet_info *pinfo, prot
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group, &subti, "Group");
 
     /* group_id */
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                      &group_start, &group_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset,
-                                      &group_start, &group_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset, api_version >= 3,
+                                  &group_start, &group_len);
 
     /* protocol_type */
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_protocol_type, tvb, pinfo, offset,
-                                      &protocol_type_start, &protocol_type_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_protocol_type, tvb, pinfo, offset,
-                                      &protocol_type_start, &protocol_type_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_protocol_type, tvb, pinfo, offset, api_version >= 3,
+                                  &protocol_type_start, &protocol_type_len);
 
     if (api_version >= 3) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -5569,13 +5172,8 @@ dissect_kafka_list_groups_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 
     /* [group] */
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_groups, &subti, "Groups");
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_list_groups_response_group, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_list_groups_response_group, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 3, api_version,
+                                 &dissect_kafka_list_groups_response_group, NULL);
     proto_item_set_end(subti, tvb, offset);
 
     if (api_version >= 3) {
@@ -5592,7 +5190,7 @@ dissect_kafka_sasl_handshake_request(tvbuff_t *tvb, packet_info *pinfo, proto_tr
                                      kafka_api_version_t api_version _U_)
 {
     /* mechanism */
-    offset = dissect_kafka_string(tree, hf_kafka_sasl_mechanism, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_sasl_mechanism, tvb, pinfo, offset, 0, NULL, NULL);
 
     return offset;
 }
@@ -5601,8 +5199,8 @@ static int
 dissect_kafka_sasl_handshake_response_enabled_mechanism(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                                         int offset, kafka_api_version_t api_version _U_)
 {
-    /* enabled_mechanism */
-    offset = dissect_kafka_string(tree, hf_kafka_sasl_mechanism, tvb, pinfo, offset, NULL, NULL);
+    /* mechanism */
+    offset = dissect_kafka_string(tree, hf_kafka_sasl_mechanism, tvb, pinfo, offset, 0, NULL, NULL);
 
     return offset;
 }
@@ -5621,7 +5219,7 @@ dissect_kafka_sasl_handshake_response(tvbuff_t *tvb, packet_info *pinfo, proto_t
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_sasl_enabled_mechanisms,
                                      &subti, "Enabled SASL Mechanisms");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_sasl_handshake_response_enabled_mechanism, NULL);
     proto_item_set_end(subti, tvb, offset);
 
@@ -5657,13 +5255,8 @@ dissect_kafka_create_topics_request_replica_assignment(tvbuff_t *tvb, packet_inf
     dissect_kafka_partition_id_ret(tvb, pinfo, subtree, offset, &partition);
 
     /* [replica] */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_topics_request_replica, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_topics_request_replica, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 5, api_version,
+                                 &dissect_kafka_create_topics_request_replica, NULL);
 
     if (api_version >= 5) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -5690,18 +5283,10 @@ dissect_kafka_create_topics_request_config(tvbuff_t *tvb, packet_info *pinfo, pr
                                      &subti, "Config");
 
     /* key */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, &key_start, &key_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, &key_start, &key_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, api_version >= 5, &key_start, &key_len);
 
     /* value */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, &val_start, &val_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, &val_start, &val_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, api_version >= 5, &val_start, &val_len);
 
     if (api_version >= 5) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -5730,11 +5315,7 @@ dissect_kafka_create_topics_request_create_topic_request(tvbuff_t *tvb, packet_i
                                      &subti, "Create Topic Request");
 
     /* topic */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 5, &topic_start, &topic_len);
 
     /* num_partitions */
     proto_tree_add_item(subtree, hf_kafka_num_partitions, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -5748,26 +5329,16 @@ dissect_kafka_create_topics_request_create_topic_request(tvbuff_t *tvb, packet_i
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                         ett_kafka_replica_assignment,
                                         &subsubti, "Replica Assignments");
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_topics_request_replica_assignment, NULL);
-    } else {
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_topics_request_replica_assignment, NULL);
-    }
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 5, api_version,
+                                 &dissect_kafka_create_topics_request_replica_assignment, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
     /* [config] */
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                         ett_kafka_config,
                                         &subsubti, "Configs");
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_topics_request_config, NULL);
-    } else {
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_topics_request_config, NULL);
-    }
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 5, api_version,
+                                 &dissect_kafka_create_topics_request_config, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
     if (api_version >= 5) {
@@ -5793,13 +5364,8 @@ dissect_kafka_create_topics_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Create Topic Requests");
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_topics_request_create_topic_request, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_topics_request_create_topic_request, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 5, api_version,
+                                 &dissect_kafka_create_topics_request_create_topic_request, NULL);
     proto_item_set_end(subti, tvb, offset);
 
     /* timeout */
@@ -5833,11 +5399,7 @@ dissect_kafka_create_topics_response_topic_error_code(tvbuff_t *tvb, packet_info
                                      &subti, "Topic Error Code");
 
     /* topic */
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 5, &topic_start, &topic_len);
 
     /* error_code */
     offset = dissect_kafka_error_ret(tvb, pinfo, subtree, offset, &error);
@@ -5870,13 +5432,8 @@ dissect_kafka_create_topics_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topic Error Codes");
-    if (api_version >= 5) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_topics_response_topic_error_code, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_topics_response_topic_error_code, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 5, api_version,
+                                 &dissect_kafka_create_topics_response_topic_error_code, NULL);
 
     if (api_version >= 5) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -5894,12 +5451,7 @@ dissect_kafka_delete_topics_request_topic(tvbuff_t *tvb, packet_info *pinfo, pro
                                           int offset, kafka_api_version_t api_version)
 {
     /* topic */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
-    }
-
+    offset = dissect_kafka_string(tree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 4, NULL, NULL);
     return offset;
 }
 
@@ -5914,13 +5466,8 @@ dissect_kafka_delete_topics_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_delete_topics_request_topic, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_delete_topics_request_topic, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                 &dissect_kafka_delete_topics_request_topic, NULL);
     proto_item_set_end(subti, tvb, offset);
 
     /* timeout */
@@ -5948,11 +5495,7 @@ dissect_kafka_delete_topics_response_topic_error_code(tvbuff_t *tvb, packet_info
                                      &subti, "Topic Error Code");
 
     /* topic */
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 4, &topic_start, &topic_len);
 
     /* error_code */
     offset = dissect_kafka_error_ret(tvb, pinfo, subtree, offset, &error);
@@ -5985,13 +5528,8 @@ dissect_kafka_delete_topics_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topic Error Codes");
-    if (api_version >= 4) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_delete_topics_response_topic_error_code, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_delete_topics_response_topic_error_code, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                 &dissect_kafka_delete_topics_response_topic_error_code, NULL);
     proto_item_set_end(subti, tvb, offset);
 
     if (api_version >= 4) {
@@ -6043,10 +5581,10 @@ dissect_kafka_delete_records_request_topic(tvbuff_t *tvb, packet_info *pinfo, pr
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_delete_records_request_topic_partition, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
@@ -6069,7 +5607,7 @@ dissect_kafka_delete_records_request(tvbuff_t *tvb, packet_info *pinfo, proto_tr
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_delete_records_request_topic, NULL);
     proto_item_set_end(subti, tvb, offset);
 
@@ -6126,10 +5664,10 @@ dissect_kafka_delete_records_response_topic(tvbuff_t *tvb, packet_info *pinfo, p
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_delete_records_response_topic_partition, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
@@ -6155,7 +5693,7 @@ dissect_kafka_delete_records_response(tvbuff_t *tvb, packet_info *pinfo, proto_t
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_delete_records_response_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -6169,11 +5707,8 @@ static int
 dissect_kafka_init_producer_id_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                               kafka_api_version_t api_version)
 {
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, NULL, NULL);
-    }
+
+    offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
 
     proto_tree_add_item(tree, hf_kafka_transaction_timeout, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
@@ -6258,10 +5793,10 @@ dissect_kafka_offset_for_leader_epoch_request_topic(tvbuff_t *tvb, packet_info *
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_offset_for_leader_epoch_request_topic_partition, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
@@ -6296,7 +5831,7 @@ dissect_kafka_offset_for_leader_epoch_request(tvbuff_t *tvb, packet_info *pinfo,
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_offset_for_leader_epoch_request_topic, NULL);
     proto_item_set_end(subti, tvb, offset);
 
@@ -6352,10 +5887,10 @@ dissect_kafka_offset_for_leader_epoch_response_topic(tvbuff_t *tvb, packet_info 
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_offset_for_leader_epoch_response_topic_partition, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
@@ -6382,7 +5917,7 @@ dissect_kafka_offset_for_leader_epoch_response(tvbuff_t *tvb, packet_info *pinfo
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_offset_for_leader_epoch_response_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -6411,10 +5946,10 @@ dissect_kafka_add_partitions_to_txn_request_topic(tvbuff_t *tvb, packet_info *pi
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_add_partitions_to_txn_request_topic_partition, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
@@ -6433,7 +5968,7 @@ dissect_kafka_add_partitions_to_txn_request(tvbuff_t *tvb, packet_info *pinfo, p
     proto_item *subti;
     proto_tree *subtree;
 
-    offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
@@ -6445,7 +5980,7 @@ dissect_kafka_add_partitions_to_txn_request(tvbuff_t *tvb, packet_info *pinfo, p
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_add_partitions_to_txn_request_topic, NULL);
     proto_item_set_end(subti, tvb, offset);
 
@@ -6493,10 +6028,10 @@ dissect_kafka_add_partitions_to_txn_response_topic(tvbuff_t *tvb, packet_info *p
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_add_partitions_to_txn_response_topic_partition, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
@@ -6521,7 +6056,7 @@ dissect_kafka_add_partitions_to_txn_response(tvbuff_t *tvb, packet_info *pinfo, 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_add_partitions_to_txn_response_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -6535,7 +6070,7 @@ static int
 dissect_kafka_add_offsets_to_txn_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                               kafka_api_version_t api_version _U_)
 {
-    offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
@@ -6543,7 +6078,7 @@ dissect_kafka_add_offsets_to_txn_request(tvbuff_t *tvb, packet_info *pinfo, prot
     proto_tree_add_item(tree, hf_kafka_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
-    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, 0, NULL, NULL);
 
     return offset;
 }
@@ -6566,7 +6101,7 @@ static int
 dissect_kafka_end_txn_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                             kafka_api_version_t api_version _U_)
 {
-    offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
@@ -6606,7 +6141,7 @@ dissect_kafka_write_txn_markers_request_partition(tvbuff_t *tvb, packet_info *pi
 
 static int
 dissect_kafka_write_txn_markers_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
-                                           int offset, kafka_api_version_t api_version _U_)
+                                           int offset, kafka_api_version_t api_version)
 {
     int topic_start, topic_len;
     proto_item *subti, *subsubti;
@@ -6614,10 +6149,10 @@ dissect_kafka_write_txn_markers_request_topic(tvbuff_t *tvb, packet_info *pinfo,
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_write_txn_markers_request_partition, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
@@ -6654,7 +6189,7 @@ dissect_kafka_write_txn_markers_request_marker(tvbuff_t *tvb, packet_info *pinfo
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subsubti, "Topics");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_write_txn_markers_request_topic, NULL);
 
     proto_tree_add_item(subsubtree, hf_kafka_coordinator_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -6678,7 +6213,7 @@ dissect_kafka_write_txn_markers_request(tvbuff_t *tvb, packet_info *pinfo, proto
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_markers,
                                      &subti, "Markers");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_write_txn_markers_request_marker, NULL);
     proto_item_set_end(subti, tvb, offset);
 
@@ -6726,10 +6261,10 @@ dissect_kafka_write_txn_markers_response_topic(tvbuff_t *tvb, packet_info *pinfo
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_write_txn_markers_response_partition, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
@@ -6756,7 +6291,7 @@ dissect_kafka_write_txn_markers_response_marker(tvbuff_t *tvb, packet_info *pinf
     offset += 8;
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Topics");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_write_txn_markers_response_topic, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
@@ -6778,7 +6313,7 @@ dissect_kafka_write_txn_markers_response(tvbuff_t *tvb, packet_info *pinfo, prot
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_markers,
                                      &subti, "Markers");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_write_txn_markers_response_marker, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -6812,11 +6347,7 @@ dissect_kafka_txn_offset_commit_request_partition(tvbuff_t *tvb, packet_info *pi
         offset += 4;
     }
 
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_metadata, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_metadata, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_metadata, tvb, pinfo, offset, api_version >= 3, NULL, NULL);
 
     if (api_version >= 3) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -6839,20 +6370,11 @@ dissect_kafka_txn_offset_commit_request_topic(tvbuff_t *tvb, packet_info *pinfo,
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 3, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_txn_offset_commit_request_partition, NULL);
-    } else {
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_txn_offset_commit_request_partition, NULL);
-    }
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 3, api_version,
+                                 &dissect_kafka_txn_offset_commit_request_partition, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
 
@@ -6875,17 +6397,9 @@ dissect_kafka_txn_offset_commit_request(tvbuff_t *tvb, packet_info *pinfo, proto
     proto_item *subti;
     proto_tree *subtree;
 
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, api_version >= 3, NULL, NULL);
 
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, api_version >= 3, NULL, NULL);
 
     proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
@@ -6899,23 +6413,18 @@ dissect_kafka_txn_offset_commit_request(tvbuff_t *tvb, packet_info *pinfo, proto
     }
 
     if (api_version >= 3) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_member_id, tvb, pinfo, offset, NULL, NULL);
+        offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, pinfo, offset, 1,NULL, NULL);
     }
 
     if (api_version >= 3) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset, NULL, NULL);
+        offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, pinfo, offset, 1,NULL, NULL);
     }
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_txn_offset_commit_request_topic, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_txn_offset_commit_request_topic, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 3, api_version,
+                                 &dissect_kafka_txn_offset_commit_request_topic, NULL);
     proto_item_set_end(subti, tvb, offset);
 
     if (api_version >= 3) {
@@ -6970,20 +6479,11 @@ dissect_kafka_txn_offset_commit_response_topic(tvbuff_t *tvb, packet_info *pinfo
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 3, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_txn_offset_commit_response_partition, NULL);
-    } else {
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_txn_offset_commit_response_partition, NULL);
-    }
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 3, api_version,
+                                 &dissect_kafka_txn_offset_commit_response_partition, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
     if (api_version >= 3) {
@@ -7012,14 +6512,8 @@ dissect_kafka_txn_offset_commit_response(tvbuff_t *tvb, packet_info *pinfo, prot
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    if (api_version >= 3) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_txn_offset_commit_response_topic, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_txn_offset_commit_response_topic, NULL);
-    }
-
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 3, api_version,
+                                 &dissect_kafka_txn_offset_commit_response_topic, NULL);
     proto_item_set_end(subti, tvb, offset);
 
     if (api_version >= 3) {
@@ -7038,16 +6532,16 @@ dissect_kafka_describe_acls_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     proto_tree_add_item(tree, hf_kafka_acl_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    offset = dissect_kafka_string(tree, hf_kafka_acl_resource_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_acl_resource_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     if (api_version >= 1) {
         proto_tree_add_item(tree, hf_kafka_acl_resource_pattern_type, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
     }
 
-    offset = dissect_kafka_string(tree, hf_kafka_acl_principal, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_acl_principal, tvb, pinfo, offset, 0, NULL, NULL);
 
-    offset = dissect_kafka_string(tree, hf_kafka_acl_host, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_acl_host, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(tree, hf_kafka_acl_operation, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
@@ -7067,9 +6561,9 @@ dissect_kafka_describe_acls_response_resource_acl(tvbuff_t *tvb, packet_info *pi
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_acl, &subti, "ACL");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_acl_principal, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_principal, tvb, pinfo, offset, 0, NULL, NULL);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_acl_host, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_host, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(subtree, hf_kafka_acl_operation, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
@@ -7092,7 +6586,7 @@ dissect_kafka_describe_acls_response_resource(tvbuff_t *tvb, packet_info *pinfo,
     proto_tree_add_item(subtree, hf_kafka_acl_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    offset = dissect_kafka_string(subtree, hf_kafka_acl_resource_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_resource_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     if (api_version >= 1) {
         proto_tree_add_item(subtree, hf_kafka_acl_resource_pattern_type, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -7100,7 +6594,7 @@ dissect_kafka_describe_acls_response_resource(tvbuff_t *tvb, packet_info *pinfo,
     }
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_acls, &subsubti, "ACLs");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_describe_acls_response_resource_acl, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
@@ -7121,12 +6615,12 @@ dissect_kafka_describe_acls_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
-    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_resources,
                                      &subti, "Resources");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_describe_acls_response_resource, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7148,16 +6642,16 @@ dissect_kafka_create_acls_request_creation(tvbuff_t *tvb, packet_info *pinfo _U_
     proto_tree_add_item(subtree, hf_kafka_acl_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    offset = dissect_kafka_string(subtree, hf_kafka_acl_resource_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_resource_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     if (api_version >= 1) {
         proto_tree_add_item(subtree, hf_kafka_acl_resource_pattern_type, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
     }
 
-    offset = dissect_kafka_string(subtree, hf_kafka_acl_principal, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_principal, tvb, pinfo, offset, 0, NULL, NULL);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_acl_host, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_host, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(subtree, hf_kafka_acl_operation, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
@@ -7180,7 +6674,7 @@ dissect_kafka_create_acls_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_acl_creations,
                                      &subti, "Creations");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_create_acls_request_creation, NULL);
     proto_item_set_end(subti, tvb, offset);
 
@@ -7198,7 +6692,7 @@ dissect_kafka_create_acls_response_creation(tvbuff_t *tvb, packet_info *pinfo _U
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
 
     return offset;
 }
@@ -7215,7 +6709,7 @@ dissect_kafka_create_acls_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_acl_creations,
                                      &subti, "Creations");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_create_acls_response_creation, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7237,16 +6731,16 @@ dissect_kafka_delete_acls_request_filter(tvbuff_t *tvb, packet_info *pinfo _U_, 
     proto_tree_add_item(subtree, hf_kafka_acl_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    offset = dissect_kafka_string(subtree, hf_kafka_acl_resource_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_resource_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     if (api_version >= 1) {
         proto_tree_add_item(subtree, hf_kafka_acl_resource_pattern_type, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
     }
 
-    offset = dissect_kafka_string(subtree, hf_kafka_acl_principal, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_principal, tvb, pinfo, offset, 0, NULL, NULL);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_acl_host, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_host, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(subtree, hf_kafka_acl_operation, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
@@ -7269,7 +6763,7 @@ dissect_kafka_delete_acls_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_acl_filter,
                                      &subti, "Filters");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_delete_acls_request_filter, NULL);
     proto_item_set_end(subti, tvb, offset);
 
@@ -7287,21 +6781,21 @@ dissect_kafka_delete_acls_response_match(tvbuff_t *tvb, packet_info *pinfo _U_, 
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(subtree, hf_kafka_acl_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    offset = dissect_kafka_string(subtree, hf_kafka_acl_resource_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_resource_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     if (api_version >= 1) {
         proto_tree_add_item(subtree, hf_kafka_acl_resource_pattern_type, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
     }
 
-    offset = dissect_kafka_string(subtree, hf_kafka_acl_principal, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_principal, tvb, pinfo, offset, 0, NULL, NULL);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_acl_host, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_acl_host, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(subtree, hf_kafka_acl_operation, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
@@ -7325,12 +6819,12 @@ dissect_kafka_delete_acls_response_filter(tvbuff_t *tvb, packet_info *pinfo _U_,
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                      ett_kafka_acl_filter_matches,
                                      &subsubti, "Matches");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_delete_acls_response_match, NULL);
 
     proto_item_set_end(subsubti, tvb, offset);
@@ -7351,7 +6845,7 @@ dissect_kafka_delete_acls_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_acl_creations,
                                      &subti, "Filters");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_delete_acls_response_filter, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7362,17 +6856,17 @@ dissect_kafka_delete_acls_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 /* DESCRIBE_CONFIGS REQUEST/RESPONSE */
 
 static int
-dissect_kafka_describe_config_request_entry(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+dissect_kafka_describe_config_request_entry(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                                int offset, kafka_api_version_t api_version _U_)
 {
-    offset = dissect_kafka_string(tree, hf_kafka_config_key, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_config_key, tvb, pinfo, offset, 0, NULL, NULL);
 
     return offset;
 }
 
 static int
-dissect_kafka_describe_config_request_resource(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
-                                         int offset, kafka_api_version_t api_version _U_)
+dissect_kafka_describe_config_request_resource(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                         int offset, kafka_api_version_t api_version)
 {
     proto_item *subti, *subsubti;
     proto_tree *subtree, *subsubtree;
@@ -7382,11 +6876,11 @@ dissect_kafka_describe_config_request_resource(tvbuff_t *tvb, packet_info *pinfo
     proto_tree_add_item(subtree, hf_kafka_config_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_config_entries, &subsubti, "Entries");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_describe_config_request_entry, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7404,7 +6898,7 @@ dissect_kafka_describe_configs_request(tvbuff_t *tvb, packet_info *pinfo, proto_
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_resources,
                                      &subti, "Resources");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_describe_config_request_resource, NULL);
 
     if (api_version >= 1) {
@@ -7427,8 +6921,8 @@ dissect_kafka_describe_configs_response_synonym(tvbuff_t *tvb, packet_info *pinf
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_config_synonym, &subti, "Synonym");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, &key_start, &key_len);
-    offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, 0, &key_start, &key_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(subtree, hf_kafka_config_source, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
@@ -7451,8 +6945,8 @@ dissect_kafka_describe_configs_response_entry(tvbuff_t *tvb, packet_info *pinfo 
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_config_entry, &subti, "Entry");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, &key_start, &key_len);
-    offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, 0, &key_start, &key_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(subtree, hf_kafka_config_readonly, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
@@ -7472,7 +6966,7 @@ dissect_kafka_describe_configs_response_entry(tvbuff_t *tvb, packet_info *pinfo 
         subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                             ett_kafka_config_synonyms,
                                             &subsubti, "Synonyms");
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                      &dissect_kafka_describe_configs_response_synonym, NULL);
 
         proto_item_set_end(subsubti, tvb, offset);
@@ -7497,17 +6991,17 @@ dissect_kafka_describe_configs_response_resource(tvbuff_t *tvb, packet_info *pin
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(subtree, hf_kafka_config_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                         ett_kafka_config_entries,
                                         &subsubti, "Entries");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_describe_configs_response_entry, NULL);
 
     proto_item_set_end(subsubti, tvb, offset);
@@ -7528,7 +7022,7 @@ dissect_kafka_describe_configs_response(tvbuff_t *tvb, packet_info *pinfo, proto
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_resources,
                                      &subti, "Resources");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_describe_configs_response_resource, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7547,8 +7041,8 @@ dissect_kafka_alter_config_request_entry(tvbuff_t *tvb, packet_info *pinfo _U_, 
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_config_entry, &subti, "Entry");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, NULL, NULL);
-    offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -7567,11 +7061,11 @@ dissect_kafka_alter_config_request_resource(tvbuff_t *tvb, packet_info *pinfo _U
     proto_tree_add_item(subtree, hf_kafka_config_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_config_entries, &subsubti, "Entries");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_alter_config_request_entry, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7589,7 +7083,7 @@ dissect_kafka_alter_configs_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_resources,
                                      &subti, "Resources");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_alter_config_request_resource, NULL);
 
     proto_tree_add_item(subtree, hf_kafka_validate_only, tvb, offset, 1, ENC_BIG_ENDIAN);
@@ -7611,12 +7105,12 @@ dissect_kafka_alter_configs_response_resource(tvbuff_t *tvb, packet_info *pinfo 
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(subtree, hf_kafka_config_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -7635,7 +7129,7 @@ dissect_kafka_alter_configs_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_resources,
                                      &subti, "Resources");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_alter_configs_response_resource, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7665,11 +7159,11 @@ dissect_kafka_alter_replica_log_dirs_request_topic(tvbuff_t *tvb, packet_info *p
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_resource, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topics, &subsubti, "Partitions");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_alter_replica_log_dirs_request_partition, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7681,19 +7175,19 @@ dissect_kafka_alter_replica_log_dirs_request_topic(tvbuff_t *tvb, packet_info *p
 }
 
 static int
-dissect_kafka_alter_replica_log_dirs_request_log_dir(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
-                                            int offset, kafka_api_version_t api_version _U_)
+dissect_kafka_alter_replica_log_dirs_request_log_dir(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                            int offset, kafka_api_version_t api_version)
 {
     proto_item *subti, *subsubti;
     proto_tree *subtree, *subsubtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_log_dir, &subti, "Log Directory");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_log_dir, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_log_dir, tvb, pinfo, offset, 0, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topics, &subsubti, "Topics");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_alter_replica_log_dirs_request_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7711,7 +7205,7 @@ dissect_kafka_alter_replica_log_dirs_request(tvbuff_t *tvb, packet_info *pinfo, 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_log_dirs,
                                      &subti, "Log Directories");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_alter_replica_log_dirs_request_log_dir, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7752,11 +7246,11 @@ dissect_kafka_alter_replica_log_dirs_response_topic(tvbuff_t *tvb, packet_info *
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_log_dir, tvb, pinfo, offset, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_log_dir, tvb, pinfo, offset, 0, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partition");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_alter_replica_log_dirs_response_partition, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7779,7 +7273,7 @@ dissect_kafka_alter_replica_log_dirs_response(tvbuff_t *tvb, packet_info *pinfo,
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_alter_replica_log_dirs_response_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7809,11 +7303,11 @@ dissect_kafka_describe_log_dirs_request_topic(tvbuff_t *tvb, packet_info *pinfo 
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_resource, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_describe_log_dirs_request_partition, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7834,7 +7328,7 @@ dissect_kafka_describe_log_dirs_request(tvbuff_t *tvb, packet_info *pinfo, proto
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_describe_log_dirs_request_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7882,11 +7376,11 @@ dissect_kafka_describe_log_dirs_response_topic(tvbuff_t *tvb, packet_info *pinfo
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_describe_log_dirs_response_partition, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7909,11 +7403,11 @@ dissect_kafka_describe_log_dirs_response_log_dir(tvbuff_t *tvb, packet_info *pin
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_log_dir, tvb, pinfo, offset, &dir_start, &dir_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_log_dir, tvb, pinfo, offset, 0, &dir_start, &dir_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_topics, &subsubti, "Topics");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_describe_log_dirs_response_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7936,7 +7430,7 @@ dissect_kafka_describe_log_dirs_response(tvbuff_t *tvb, packet_info *pinfo, prot
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_log_dirs,
                                      &subti, "Log Directories");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_describe_log_dirs_response_log_dir, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7966,25 +7460,14 @@ dissect_kafka_create_partitions_request_topic(tvbuff_t *tvb, packet_info *pinfo,
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_resource, &subti, "Topic");
 
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 2, &topic_start, &topic_len);
 
     proto_tree_add_item(subtree, hf_kafka_partition_count, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_brokers, &subsubti, "Brokers");
-
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_partitions_request_broker, NULL);
-    } else {
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_partitions_request_broker, NULL);
-    }
-
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 2, api_version,
+                                 &dissect_kafka_create_partitions_request_broker, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
     if (api_version >= 2) {
@@ -8009,15 +7492,8 @@ dissect_kafka_create_partitions_request(tvbuff_t *tvb, packet_info *pinfo, proto
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_partitions_request_topic, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_partitions_request_topic, NULL);
-    }
-
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 2, api_version,
+                                 &dissect_kafka_create_partitions_request_topic, NULL);
     proto_item_set_end(subti, tvb, offset);
 
     proto_tree_add_item(tree, hf_kafka_timeout, tvb, offset, 4, ENC_BIG_ENDIAN);
@@ -8043,19 +7519,11 @@ dissect_kafka_create_partitions_response_topic(tvbuff_t *tvb, packet_info *pinfo
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, &topic_start, &topic_len);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 2, &topic_start, &topic_len);
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
 
     if (api_version >= 2) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -8081,14 +7549,8 @@ dissect_kafka_create_partitions_response(tvbuff_t *tvb, packet_info *pinfo, prot
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_partitions_response_topic, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_create_partitions_response_topic, NULL);
-    }
-
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 2, api_version,
+                                 &dissect_kafka_create_partitions_response_topic, NULL);
     proto_item_set_end(subti, tvb, offset);
 
     if (api_version >= 2) {
@@ -8104,7 +7566,7 @@ static int
 dissect_kafka_sasl_authenticate_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                          kafka_api_version_t api_version _U_)
 {
-    offset = dissect_kafka_bytes(tree, hf_kafka_sasl_auth_bytes, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_bytes(tree, hf_kafka_sasl_auth_bytes, tvb, pinfo, offset, 0, NULL, NULL);
 
     return offset;
 }
@@ -8116,9 +7578,9 @@ dissect_kafka_sasl_authenticate_response(tvbuff_t *tvb, packet_info *pinfo, prot
 {
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
-    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
 
-    offset = dissect_kafka_bytes(tree, hf_kafka_sasl_auth_bytes, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_bytes(tree, hf_kafka_sasl_auth_bytes, tvb, pinfo, offset, 0, NULL, NULL);
 
     if (api_version >= 1) {
         proto_tree_add_item(tree, hf_kafka_session_lifetime_ms, tvb, offset, 8, ENC_BIG_ENDIAN);
@@ -8139,9 +7601,9 @@ dissect_kafka_create_delegation_token_request_renewer(tvbuff_t *tvb, packet_info
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_renewer, &subti, "Renewer");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, 0, NULL, NULL);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8159,7 +7621,7 @@ dissect_kafka_create_delegation_token_request(tvbuff_t *tvb, packet_info *pinfo,
                                      ett_kafka_renewers,
                                      &subti, "Renewers");
 
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_create_delegation_token_request_renewer, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -8176,8 +7638,8 @@ dissect_kafka_create_delegation_token_response(tvbuff_t *tvb, packet_info *pinfo
 {
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
-    offset = dissect_kafka_string(tree, hf_kafka_token_principal_type, tvb, pinfo, offset, NULL, NULL);
-    offset = dissect_kafka_string(tree, hf_kafka_token_principal_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_token_principal_type, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_token_principal_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(tree, hf_kafka_token_issue_timestamp, tvb, offset, 8, ENC_TIME_MSECS | ENC_BIG_ENDIAN);
     offset += 8;
@@ -8186,8 +7648,8 @@ dissect_kafka_create_delegation_token_response(tvbuff_t *tvb, packet_info *pinfo
     proto_tree_add_item(tree, hf_kafka_token_max_timestamp, tvb, offset, 8, ENC_TIME_MSECS | ENC_BIG_ENDIAN);
     offset += 8;
 
-    offset = dissect_kafka_string(tree, hf_kafka_token_id, tvb, pinfo, offset, NULL, NULL);
-    offset = dissect_kafka_bytes(tree, hf_kafka_token_hmac, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_token_id, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_bytes(tree, hf_kafka_token_hmac, tvb, pinfo, offset, 0, NULL, NULL);
 
     offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
 
@@ -8200,7 +7662,7 @@ static int
 dissect_kafka_renew_delegation_token_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                               kafka_api_version_t api_version _U_)
 {
-    offset = dissect_kafka_bytes(tree, hf_kafka_token_hmac, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_bytes(tree, hf_kafka_token_hmac, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(tree, hf_kafka_token_renew_time, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
@@ -8226,7 +7688,7 @@ static int
 dissect_kafka_expire_delegation_token_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                              kafka_api_version_t api_version _U_)
 {
-    offset = dissect_kafka_bytes(tree, hf_kafka_token_hmac, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_bytes(tree, hf_kafka_token_hmac, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(tree, hf_kafka_token_expiry_time, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
@@ -8257,9 +7719,9 @@ dissect_kafka_describe_delegation_token_request_owner(tvbuff_t *tvb, packet_info
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_owner, &subti, "Owner");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, 0, NULL, NULL);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8277,7 +7739,7 @@ dissect_kafka_describe_delegation_token_request(tvbuff_t *tvb, packet_info *pinf
                                      ett_kafka_owners,
                                      &subti, "Owners");
 
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_describe_delegation_token_request_owner, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -8294,8 +7756,8 @@ dissect_kafka_describe_delegation_token_response_renewer(tvbuff_t *tvb, packet_i
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_renewer, &subti, "Renewer");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, NULL, NULL);
-    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8311,8 +7773,8 @@ dissect_kafka_describe_delegation_token_response_token(tvbuff_t *tvb, packet_inf
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_token, &subti, "Token");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, NULL, NULL);
-    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_tree_add_item(subtree, hf_kafka_token_issue_timestamp, tvb, offset, 8, ENC_TIME_MSECS | ENC_BIG_ENDIAN);
     offset += 8;
@@ -8321,15 +7783,14 @@ dissect_kafka_describe_delegation_token_response_token(tvbuff_t *tvb, packet_inf
     proto_tree_add_item(subtree, hf_kafka_token_max_timestamp, tvb, offset, 8, ENC_TIME_MSECS | ENC_BIG_ENDIAN);
     offset += 8;
 
-    offset = dissect_kafka_string(subtree, hf_kafka_token_id, tvb, pinfo, offset, NULL, NULL);
-    offset = dissect_kafka_bytes(subtree, hf_kafka_token_hmac, tvb, pinfo, offset, NULL, NULL);
-
+    offset = dissect_kafka_string(subtree, hf_kafka_token_id, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_bytes(subtree, hf_kafka_token_hmac, tvb, pinfo, offset, 0, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                      ett_kafka_renewers,
                                      &subsubti, "Renewers");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_describe_delegation_token_response_renewer, NULL);
 
     proto_item_set_end(subsubti, tvb, offset);
@@ -8352,7 +7813,7 @@ dissect_kafka_describe_delegation_token_response(tvbuff_t *tvb, packet_info *pin
                                      ett_kafka_tokens,
                                      &subti, "Tokens");
 
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_describe_delegation_token_response_token, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -8368,12 +7829,7 @@ static int
 dissect_kafka_delete_groups_request_group(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                                       int offset, kafka_api_version_t api_version)
 {
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
-    }
-
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
     return offset;
 }
 
@@ -8388,13 +7844,8 @@ dissect_kafka_delete_groups_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
                                      ett_kafka_groups,
                                      &subti, "Groups");
 
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_delete_groups_request_group, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_delete_groups_request_group, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 2, api_version,
+                                 &dissect_kafka_delete_groups_request_group, NULL);
 
     if (api_version >= 2) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -8414,11 +7865,8 @@ dissect_kafka_delete_groups_response_group(tvbuff_t *tvb, packet_info *pinfo _U_
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group, &subti, "Group");
 
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_consumer_group, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
+
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
     if (api_version >= 2) {
@@ -8443,13 +7891,8 @@ dissect_kafka_delete_groups_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
                                      ett_kafka_groups,
                                      &subti, "Groups");
 
-    if (api_version >= 2) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_delete_groups_response_group, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_delete_groups_response_group, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 2, api_version,
+                                 &dissect_kafka_delete_groups_response_group, NULL);
 
     if (api_version >= 2) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -8487,7 +7930,7 @@ dissect_kafka_elect_leaders_request_topic(tvbuff_t *tvb, packet_info *pinfo, pro
                                      ett_kafka_partitions,
                                      &subsubti, "Partitions");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_elect_leaders_request_partition, NULL);
 
     proto_item_set_end(subsubti, tvb, offset);
@@ -8512,7 +7955,7 @@ dissect_kafka_elect_leaders_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
                                      ett_kafka_topics,
                                      &subti, "Topics");
 
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_elect_leaders_request_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -8542,7 +7985,7 @@ dissect_kafka_elect_leaders_response_partition(tvbuff_t *tvb, packet_info *pinfo
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8564,7 +8007,7 @@ dissect_kafka_elect_leaders_response_topic(tvbuff_t *tvb, packet_info *pinfo, pr
                                         ett_kafka_partitions,
                                         &subsubti, "Partitions");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_elect_leaders_response_partition, NULL);
 
     proto_item_set_end(subsubti, tvb, offset);
@@ -8590,7 +8033,7 @@ dissect_kafka_elect_leaders_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
                                      ett_kafka_topics,
                                      &subti, "Topics");
 
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_elect_leaders_response_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -8609,20 +8052,12 @@ dissect_kafka_inc_alter_config_request_entry(tvbuff_t *tvb, packet_info *pinfo, 
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_config_entry, &subti, "Entry");
 
-    if (api_version >= 1) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, api_version >= 1, NULL, NULL);
 
     proto_tree_add_item(subtree, hf_kafka_config_operation, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    if (api_version >= 1) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, api_version >= 1, NULL, NULL);
 
     if (api_version >= 1) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -8645,21 +8080,11 @@ dissect_kafka_inc_alter_config_request_resource(tvbuff_t *tvb, packet_info *pinf
     proto_tree_add_item(subtree, hf_kafka_config_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    if (api_version >= 1) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, api_version >= 1, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_config_entries, &subsubti, "Entries");
-
-    if (api_version >= 1) {
-        offset = dissect_kafka_compact_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_inc_alter_config_request_entry, NULL);
-    } else {
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_inc_alter_config_request_entry, NULL);
-    }
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 1, api_version,
+                                 &dissect_kafka_inc_alter_config_request_entry, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
     if (api_version >= 1) {
@@ -8682,13 +8107,8 @@ dissect_kafka_inc_alter_configs_request(tvbuff_t *tvb, packet_info *pinfo, proto
                                      ett_kafka_resources,
                                      &subti, "Resources");
 
-    if (api_version >= 1) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_inc_alter_config_request_resource, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_inc_alter_config_request_resource, NULL);
-    }
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 1, api_version,
+                                 &dissect_kafka_inc_alter_config_request_resource, NULL);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8713,20 +8133,12 @@ dissect_kafka_inc_alter_configs_response_resource(tvbuff_t *tvb, packet_info *pi
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    if (api_version >= 1) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, api_version >= 1, NULL, NULL);
 
     proto_tree_add_item(subtree, hf_kafka_config_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
-    if (api_version >= 1) {
-        offset = dissect_kafka_compact_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, NULL, NULL);
-    } else {
-        offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, NULL, NULL);
-    }
+    offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, api_version >= 1, NULL, NULL);
 
     if (api_version >= 1) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -8749,15 +8161,8 @@ dissect_kafka_inc_alter_configs_response(tvbuff_t *tvb, packet_info *pinfo, prot
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_resources,
                                      &subti, "Resources");
-
-    if (api_version >= 1) {
-        offset = dissect_kafka_compact_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_inc_alter_configs_response_resource, NULL);
-    } else {
-        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
-                                     &dissect_kafka_inc_alter_configs_response_resource, NULL);
-    }
-
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 1, api_version,
+                                 &dissect_kafka_inc_alter_configs_response_resource, NULL);
     proto_item_set_end(subti, tvb, offset);
 
     if (api_version >= 1) {
@@ -8775,7 +8180,6 @@ dissect_kafka_alter_partition_reassignments_request_replica(tvbuff_t *tvb, packe
 {
     proto_tree_add_item(tree, hf_kafka_replica, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
-
     return offset;
 }
 
@@ -8793,7 +8197,7 @@ dissect_kafka_alter_partition_reassignments_request_partition(tvbuff_t *tvb, pac
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Replicas");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_alter_partition_reassignments_request_replica, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -8810,11 +8214,11 @@ dissect_kafka_alter_partition_reassignments_request_topic(tvbuff_t *tvb, packet_
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_alter_partition_reassignments_request_partition, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -8835,7 +8239,7 @@ dissect_kafka_alter_partition_reassignments_request(tvbuff_t *tvb, packet_info *
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_alter_partition_reassignments_request_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -8857,7 +8261,7 @@ dissect_kafka_alter_partition_reassignments_response_partition(tvbuff_t *tvb, pa
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8873,11 +8277,11 @@ dissect_kafka_alter_partition_reassignments_response_topic(tvbuff_t *tvb, packet
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_alter_partition_reassignments_response_partition, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -8896,12 +8300,12 @@ dissect_kafka_alter_partition_reassignments_response(tvbuff_t *tvb, packet_info 
 
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
-    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_alter_partition_reassignments_response_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -8930,11 +8334,11 @@ dissect_kafka_list_partition_reassignments_request_topic(tvbuff_t *tvb, packet_i
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_list_partition_reassignments_request_partition, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -8955,7 +8359,7 @@ dissect_kafka_list_partition_reassignments_request(tvbuff_t *tvb, packet_info *p
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_list_partition_reassignments_request_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -8987,26 +8391,26 @@ dissect_kafka_list_partition_reassignments_response_partition(tvbuff_t *tvb, pac
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                         ett_kafka_replicas,
                                         &subsubti, "Current Replicas");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_list_partition_reassignments_response_replica, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                         ett_kafka_replicas,
                                         &subsubti, "Adding Replicas");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_list_partition_reassignments_response_replica, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                         ett_kafka_replicas,
                                         &subsubti, "Removing Replicas");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_list_partition_reassignments_response_replica, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
@@ -9024,11 +8428,11 @@ dissect_kafka_list_partition_reassignments_response_topic(tvbuff_t *tvb, packet_
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_list_partition_reassignments_response_partition, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -9047,12 +8451,12 @@ dissect_kafka_list_partition_reassignments_response(tvbuff_t *tvb, packet_info *
 
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
-    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_list_partition_reassignments_response_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -9073,13 +8477,13 @@ dissect_kafka_offset_delete_request_topic(tvbuff_t *tvb, packet_info *pinfo, pro
                                      ett_kafka_topic,
                                      &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                      ett_kafka_partitions,
                                      &subsubti, "Partitions");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_partition_id, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -9096,13 +8500,13 @@ dissect_kafka_offset_delete_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     proto_item *subti;
     proto_tree *subtree;
 
-    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, 0, NULL, NULL);
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
 
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_offset_delete_request_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -9141,13 +8545,13 @@ dissect_kafka_offset_delete_response_topic(tvbuff_t *tvb, packet_info *pinfo, pr
                                      ett_kafka_topic,
                                      &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                      ett_kafka_partitions,
                                      &subsubti, "Partitions");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_offset_delete_response_topic_partition, NULL);
 
     proto_item_set_end(subsubti, tvb, offset);
@@ -9172,7 +8576,7 @@ dissect_kafka_offset_delete_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
                                      ett_kafka_topics,
                                      &subti, "Topics");
 
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                  &dissect_kafka_offset_delete_response_topic, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -9279,7 +8683,7 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
              */
         } else {
             /* even if flexible API is used, clientId is still using gint16 string length prefix */
-            offset = dissect_kafka_string(kafka_tree, hf_kafka_client_id, tvb, pinfo, offset, NULL, NULL);
+            offset = dissect_kafka_string(kafka_tree, hf_kafka_client_id, tvb, pinfo, offset, 0, NULL, NULL);
         }
 
         if (matcher->flexible_api) {
