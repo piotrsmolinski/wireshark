@@ -348,8 +348,6 @@ typedef struct _kafka_api_info_t {
  * Flexible request header is 2 and response header id 1.
  * Note that request header version is hardcoded to 0 for ControlledShutdown v.0 and
  * response header version for ApiVersions is always 0.
- * We need functions:
- * bool is_flexible(gint16 api_key, gint16 version)
  */
 static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_PRODUCE,                       "Produce",
@@ -367,7 +365,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_UPDATE_METADATA,               "UpdateMetadata",
       0, 5, 6 },
     { KAFKA_CONTROLLED_SHUTDOWN,           "ControlledShutdown",
-      0, 2, 3 },
+      0, 3, 3 },
     { KAFKA_OFFSET_COMMIT,                 "OffsetCommit",
       0, 8, 8 },
     { KAFKA_OFFSET_FETCH,                  "OffsetFetch",
@@ -4096,6 +4094,10 @@ dissect_kafka_controlled_shutdown_request(tvbuff_t *tvb, packet_info *pinfo, pro
         offset += 8;
     }
 
+    if (api_version >= 3) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
+
     col_append_fstr(pinfo->cinfo, COL_INFO, " (Broker-ID=%d)", broker_id);
 
     return offset;
@@ -4104,7 +4106,7 @@ dissect_kafka_controlled_shutdown_request(tvbuff_t *tvb, packet_info *pinfo, pro
 static int
 dissect_kafka_controlled_shutdown_response_partition_remaining(tvbuff_t *tvb, packet_info *pinfo,
                                                                proto_tree *tree, int offset,
-                                                               kafka_api_version_t api_version _U_)
+                                                               kafka_api_version_t api_version)
 {
     proto_item *subti;
     proto_tree *subtree;
@@ -4115,13 +4117,22 @@ dissect_kafka_controlled_shutdown_response_partition_remaining(tvbuff_t *tvb, pa
                                      "Partition Remaining");
 
     /* topic */
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
-                                  &topic_start, &topic_len);
+    if (api_version >= 3) {
+        offset = dissect_kafka_compact_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
+                                      &topic_start, &topic_len);
+    } else {
+        offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset,
+                                      &topic_start, &topic_len);
+    }
 
     /* partition */
     partition = (gint32) tvb_get_ntohl(tvb, offset);
     proto_tree_add_item(subtree, hf_kafka_partition_id, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
+
+    if (api_version >= 3) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
+    }
 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s, Partition-ID=%d)",
@@ -4140,8 +4151,17 @@ dissect_kafka_controlled_shutdown_response(tvbuff_t *tvb, packet_info *pinfo, pr
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
     /* [partition_remaining] */
-    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
-                                 &dissect_kafka_controlled_shutdown_response_partition_remaining, NULL);
+    if (api_version >= 3) {
+        offset = dissect_kafka_compact_array(tree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_controlled_shutdown_response_partition_remaining, NULL);
+    } else {
+        offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version,
+                                     &dissect_kafka_controlled_shutdown_response_partition_remaining, NULL);
+    }
+
+    if (api_version >= 3) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
 
     return offset;
 }
