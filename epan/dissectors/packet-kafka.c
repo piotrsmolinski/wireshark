@@ -432,7 +432,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_RENEW_DELEGATION_TOKEN,        "RenewDelegationToken",
       0, 2, 2 },
     { KAFKA_EXPIRE_DELEGATION_TOKEN,       "ExpireDelegationToken",
-      0, 1, 2 },
+      0, 2, 2 },
     { KAFKA_DESCRIBE_DELEGATION_TOKEN,     "DescribeDelegationToken",
       0, 2, 2 },
     { KAFKA_DELETE_GROUPS,                 "DeleteGroups",
@@ -7764,12 +7764,15 @@ dissect_kafka_renew_delegation_token_response(tvbuff_t *tvb, packet_info *pinfo,
 
 static int
 dissect_kafka_expire_delegation_token_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                                             kafka_api_version_t api_version _U_)
+                                             kafka_api_version_t api_version)
 {
-    offset = dissect_kafka_bytes(tree, hf_kafka_token_hmac, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_bytes(tree, hf_kafka_token_hmac, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
 
-    proto_tree_add_item(tree, hf_kafka_token_expiry_time, tvb, offset, 8, ENC_BIG_ENDIAN);
-    offset += 8;
+    offset = dissect_kafka_int64(tree, hf_kafka_token_expiry_time, tvb, pinfo, offset, NULL);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
 
     return offset;
 }
@@ -7779,9 +7782,14 @@ dissect_kafka_expire_delegation_token_response(tvbuff_t *tvb, packet_info *pinfo
                                               kafka_api_version_t api_version _U_)
 {
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
-    proto_tree_add_item(tree, hf_kafka_token_expiry_timestamp, tvb, offset, 8, ENC_TIME_MSECS | ENC_BIG_ENDIAN);
-    offset += 8;
+
+    offset = dissect_kafka_timestamp(tree, hf_kafka_token_expiry_timestamp, tvb, pinfo, offset, NULL);
+
     offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
+    }
 
     return offset;
 }
