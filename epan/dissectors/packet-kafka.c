@@ -36,7 +36,6 @@ void proto_register_kafka(void);
 void proto_reg_handoff_kafka(void);
 
 static int proto_kafka = -1;
-static dissector_handle_t kafka_handle;
 
 static int hf_kafka_len = -1;
 static int hf_kafka_api_key = -1;
@@ -928,12 +927,6 @@ kafka_check_supported_api_version(packet_info *pinfo, proto_item *ti, kafka_quer
                                    api_info->min_version, api_info->max_version);
         }
     }
-}
-
-static guint
-get_kafka_pdu_len(packet_info *pinfo _U_, tvbuff_t *tvb, int offset, void *data _U_)
-{
-    return 4 + tvb_get_ntohl(tvb, offset);
 }
 
 static int
@@ -9171,13 +9164,31 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
     return tvb_captured_length(tvb);
 }
 
+/*
+ * Compute the length of a Kafka protocol frame (PDU) from the minimal fragment.
+ * The datastream in TCP (and TLS) is and abstraction of continuous stream of octets.
+ * On the network level these are transported in chunks (packets). On the application
+ * protocol level we do also deal with discrete chunks (PDUs). Ideally these should
+ * match. In the real life the boundaries are different. In Kafka case a PDU may span
+ * multiple network packets. A PDU starts with 32 bit unsigned integer that specifies
+ * remaining protocol frame length. Fortunatelly protocol implementations execute
+ * flush between subsequent PDUs, therefore we should not expect PDU starting in the middle
+ * of TCP data packet or TLS data frame.
+ */
+static guint
+get_kafka_pdu_len(packet_info *pinfo _U_, tvbuff_t *tvb, int offset, void *data _U_)
+{
+    return 4 + tvb_get_ntohl(tvb, offset);
+}
+
+/*
+ * Attempt to dissect Kafka protocol frames.
+ */
 static int
-dissect_kafka_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
-        void *data)
+dissect_kafka_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
     tcp_dissect_pdus(tvb, pinfo, tree, TRUE, 4,
             get_kafka_pdu_len, dissect_kafka, data);
-
     return tvb_captured_length(tvb);
 }
 
@@ -9197,7 +9208,7 @@ compute_kafka_api_names(void)
 }
 
 void
-proto_register_kafka(void)
+proto_register_kafka_protocol_fields(int protocol)
 {
     static hf_register_info hf[] = {
         { &hf_kafka_len,
@@ -10005,6 +10016,13 @@ proto_register_kafka(void)
         },
     };
 
+    proto_register_field_array(protocol, hf, array_length(hf));
+
+}
+
+void
+proto_register_kafka_protocol_subtrees(const int proto _U_)
+{
     static int *ett[] = {
         &ett_kafka,
         &ett_kafka_batch,
@@ -10068,55 +10086,83 @@ proto_register_kafka(void)
         &ett_kafka_record_errors,
         &ett_kafka_record_error,
     };
+    proto_register_subtree_array(ett, array_length(ett));
+}
 
-    static ei_register_info ei[] = {
-        { &ei_kafka_request_missing,
-          { "kafka.request_missing", PI_UNDECODED, PI_WARN, "Request missing", EXPFILL }},
-        { &ei_kafka_unknown_api_key,
-          { "kafka.unknown_api_key", PI_UNDECODED, PI_WARN, "Unknown API key", EXPFILL }},
-        { &ei_kafka_unsupported_api_version,
-          { "kafka.unsupported_api_version", PI_UNDECODED, PI_WARN, "Unsupported API version", EXPFILL }},
-        { &ei_kafka_bad_string_length,
-          { "kafka.bad_string_length", PI_MALFORMED, PI_WARN, "Invalid string length field", EXPFILL }},
-        { &ei_kafka_bad_bytes_length,
-          { "kafka.bad_bytes_length", PI_MALFORMED, PI_WARN, "Invalid byte length field", EXPFILL }},
-        { &ei_kafka_bad_array_length,
-          { "kafka.bad_array_length", PI_MALFORMED, PI_WARN, "Invalid array length field", EXPFILL }},
-        { &ei_kafka_bad_record_length,
-          { "kafka.bad_record_length", PI_MALFORMED, PI_WARN, "Invalid record length field", EXPFILL }},
-        { &ei_kafka_bad_varint,
-          { "kafka.bad_varint", PI_MALFORMED, PI_WARN, "Invalid varint bytes", EXPFILL }},
-        { &ei_kafka_bad_message_set_length,
-          { "kafka.ei_kafka_bad_message_set_length", PI_MALFORMED, PI_WARN, "Message set size does not match content", EXPFILL }},
-        { &ei_kafka_unknown_message_magic,
-          { "kafka.unknown_message_magic", PI_MALFORMED, PI_WARN, "Invalid message magic field", EXPFILL }},
-    };
-
-    module_t *kafka_module;
+void
+proto_register_kafka_expert_module(const int proto) {
     expert_module_t* expert_kafka;
+    static ei_register_info ei[] = {
+            { &ei_kafka_request_missing,
+                    { "kafka.request_missing", PI_UNDECODED, PI_WARN, "Request missing", EXPFILL }},
+            { &ei_kafka_unknown_api_key,
+                    { "kafka.unknown_api_key", PI_UNDECODED, PI_WARN, "Unknown API key", EXPFILL }},
+            { &ei_kafka_unsupported_api_version,
+                    { "kafka.unsupported_api_version", PI_UNDECODED, PI_WARN, "Unsupported API version", EXPFILL }},
+            { &ei_kafka_bad_string_length,
+                    { "kafka.bad_string_length", PI_MALFORMED, PI_WARN, "Invalid string length field", EXPFILL }},
+            { &ei_kafka_bad_bytes_length,
+                    { "kafka.bad_bytes_length", PI_MALFORMED, PI_WARN, "Invalid byte length field", EXPFILL }},
+            { &ei_kafka_bad_array_length,
+                    { "kafka.bad_array_length", PI_MALFORMED, PI_WARN, "Invalid array length field", EXPFILL }},
+            { &ei_kafka_bad_record_length,
+                    { "kafka.bad_record_length", PI_MALFORMED, PI_WARN, "Invalid record length field", EXPFILL }},
+            { &ei_kafka_bad_varint,
+                    { "kafka.bad_varint", PI_MALFORMED, PI_WARN, "Invalid varint bytes", EXPFILL }},
+            { &ei_kafka_bad_message_set_length,
+                    { "kafka.ei_kafka_bad_message_set_length", PI_MALFORMED, PI_WARN, "Message set size does not match content", EXPFILL }},
+            { &ei_kafka_unknown_message_magic,
+                    { "kafka.unknown_message_magic", PI_MALFORMED, PI_WARN, "Invalid message magic field", EXPFILL }},
+    };
+    expert_kafka = expert_register_protocol(proto);
+    expert_register_field_array(expert_kafka, ei, array_length(ei));
+}
 
-    proto_kafka = proto_register_protocol("Kafka", "Kafka", "kafka");
+void
+proto_register_kafka_preferences(const int proto)
+{
+    module_t *kafka_module;
+    kafka_module = prefs_register_protocol(proto, NULL);
+    prefs_register_bool_preference(kafka_module, "show_string_bytes_lengths",
+                                   "Show length for string and bytes fields in the protocol tree",
+                                   "",
+                                   &kafka_show_string_bytes_lengths);
+}
+
+
+/*
+ * Dissector entry points, contract for dissection plugin.
+ */
+
+void
+proto_register_kafka(void)
+{
+
+    int protocol_handle;
 
     compute_kafka_api_names();
-    proto_register_field_array(proto_kafka, hf, array_length(hf));
-    proto_register_subtree_array(ett, array_length(ett));
-    expert_kafka = expert_register_protocol(proto_kafka);
-    expert_register_field_array(expert_kafka, ei, array_length(ei));
 
-    kafka_module = prefs_register_protocol(proto_kafka, NULL);
-    kafka_handle = register_dissector("kafka", dissect_kafka_tcp, proto_kafka);
+    protocol_handle = proto_register_protocol("Kafka", "Kafka", "kafka");
+    proto_register_kafka_protocol_fields(protocol_handle);
+    proto_register_kafka_protocol_subtrees(protocol_handle);
+    proto_register_kafka_expert_module(protocol_handle);
+    proto_register_kafka_preferences(protocol_handle);
 
-    prefs_register_bool_preference(kafka_module, "show_string_bytes_lengths",
-        "Show length for string and bytes fields in the protocol tree",
-        "",
-        &kafka_show_string_bytes_lengths);
+    proto_kafka = protocol_handle;
+
 }
 
 void
 proto_reg_handoff_kafka(void)
 {
+
+    static dissector_handle_t kafka_handle;
+
+    kafka_handle = register_dissector("kafka", dissect_kafka_tcp, proto_kafka);
+
     dissector_add_uint_range_with_preference("tcp.port", KAFKA_TCP_DEFAULT_RANGE, kafka_handle);
     ssl_dissector_add(0, kafka_handle);
+
 }
 
 /*
