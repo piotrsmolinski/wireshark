@@ -943,6 +943,10 @@ dissect_kafka_array_elements(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo
     return offset;
 }
 
+/*
+ * In the pre KIP-482 the arrays had length saved in 32-bit signed integer. If the value was -1,
+ * the array was considered to be null.
+ */
 static int
 dissect_kafka_regular_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset,
                     kafka_api_version_t api_version,
@@ -966,6 +970,11 @@ dissect_kafka_regular_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo,
     return offset;
 }
 
+/*
+ * KIP-482 introduced concept of compact arrays. If API version for the given call is marked flexible,
+ * all arrays are prefixed with unsigned varint. The value is the array length + 1. If the value is 0,
+ * the array is null.
+ */
 static int
 dissect_kafka_compact_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset,
                         kafka_api_version_t api_version,
@@ -993,6 +1002,9 @@ dissect_kafka_compact_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo,
     return offset;
 }
 
+/*
+ * Dissect array. Use 'flexible' flag to select which variant should be used.
+ */
 static int
 dissect_kafka_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int offset, int flexible,
                             kafka_api_version_t api_version,
@@ -1007,6 +1019,7 @@ dissect_kafka_array(proto_tree *tree, tvbuff_t *tvb, packet_info *pinfo, int off
 
 }
 
+/* kept for completeness */
 static int
 dissect_kafka_varint(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
                      gint64 *p_value) _U_;
@@ -1052,6 +1065,9 @@ dissect_kafka_varuint(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info 
     return offset + len;
 }
 
+/*
+ * Pre KIP-482 coding. The string is prefixed with 16-bit signed integer. Value -1 means null.
+ */
 static int
 dissect_kafka_regular_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
                      int *p_offset, int *p_length)
@@ -1082,6 +1098,9 @@ dissect_kafka_regular_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packe
     return offset;
 }
 
+/*
+ * Compact coding. The string is prefixed with unsigned varint containing number of octets + 1.
+ */
 static int
 dissect_kafka_compact_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
                              int *p_offset, int *p_length)
@@ -1117,6 +1136,9 @@ dissect_kafka_compact_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packe
     return offset;
 }
 
+/*
+ * Dissect string. Depending on the 'flexible' flag use old style or compact coding.
+ */
 static int
 dissect_kafka_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset, int flexible,
                              int *p_offset, int *p_length)
@@ -1143,6 +1165,9 @@ kafka_tvb_get_string(tvbuff_t *tvb, int offset, int length)
     }
 }
 
+/*
+ * Pre KIP-482 coding. The string is prefixed with signed 16-bit integer containing number of octets.
+ */
 static int
 dissect_kafka_regular_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
                     int *p_offset, int *p_length)
@@ -1174,6 +1199,9 @@ dissect_kafka_regular_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet
     return offset;
 }
 
+/*
+ * Compact coding. The bytes are prefixed with unsigned varint containing number of octets + 1.
+ */
 static int
 dissect_kafka_compact_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
                     int *p_offset, int *p_length)
@@ -1210,6 +1238,9 @@ dissect_kafka_compact_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet
     return offset;
 }
 
+/*
+ * Dissect byte buffer. Depending on the 'flexible' flag use old style or compact coding.
+ */
 static int
 dissect_kafka_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset, int flexible,
                      int *p_offset, int *p_length)
@@ -10145,6 +10176,7 @@ proto_register_kafka_preferences(const int proto)
 {
     module_t *kafka_module;
     kafka_module = prefs_register_protocol(proto, NULL);
+    /* unused; kept for backward compatibility */
     prefs_register_bool_preference(kafka_module, "show_string_bytes_lengths",
                                    "Show length for string and bytes fields in the protocol tree",
                                    "",
