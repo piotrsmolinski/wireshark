@@ -5435,17 +5435,46 @@ dissect_kafka_create_topics_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
 }
 
 static int
-dissect_kafka_create_topics_response_topic_error_code(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+dissect_kafka_create_topics_response_topic_config(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                                       int offset, kafka_api_version_t api_version)
 {
     proto_item *subti;
     proto_tree *subtree;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_config_entry,
+                                     &subti, "Config Entry");
+
+    offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, api_version >= 5, NULL, NULL);
+
+    offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, api_version >= 5, NULL, NULL);
+
+    offset = dissect_kafka_int8(subtree, hf_kafka_config_readonly, tvb, pinfo, offset, NULL);
+
+    offset = dissect_kafka_int8(subtree, hf_kafka_config_source, tvb, pinfo, offset, NULL);
+
+    offset = dissect_kafka_int8(subtree, hf_kafka_config_sensitive, tvb, pinfo, offset, NULL);
+
+    offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
+
+    proto_item_set_end(subti, tvb, offset);
+
+    return offset;
+
+}
+
+static int
+dissect_kafka_create_topics_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                                      int offset, kafka_api_version_t api_version)
+{
+    proto_item *subti, *subsubti;
+    proto_tree *subtree, *subsubtree;
     int topic_start, topic_len;
     kafka_error_t error;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topic,
-                                     &subti, "Topic Error Code");
+                                     &subti, "Topic");
 
     /* topic */
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 5, &topic_start, &topic_len);
@@ -5453,14 +5482,34 @@ dissect_kafka_create_topics_response_topic_error_code(tvbuff_t *tvb, packet_info
     /* error_code */
     offset = dissect_kafka_error_ret(tvb, pinfo, subtree, offset, &error);
 
+    if (api_version >= 1) {
+        offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, api_version >= 5, NULL, NULL);
+    }
+
+    if (api_version >= 5) {
+        offset = dissect_kafka_int32(subtree, hf_kafka_num_partitions, tvb, pinfo, offset, NULL);
+    }
+
+    if (api_version >= 5) {
+        offset = dissect_kafka_int16(subtree, hf_kafka_replication_factor, tvb, pinfo, offset, NULL);
+    }
+
+    if (api_version >= 5) {
+        subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
+                                            ett_kafka_config,
+                                            &subsubti, "Config");
+        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 5, api_version,
+                                     &dissect_kafka_create_topics_response_topic_config, NULL);
+        proto_item_set_end(subsubti, tvb, offset);
+    }
+
     if (api_version >= 5) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
     }
 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s, Error=%s)",
-                           tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              topic_start, topic_len, ENC_UTF_8),
+                           kafka_tvb_get_string(tvb, topic_start, topic_len),
                            kafka_error_to_str(error));
 
     return offset;
@@ -5480,15 +5529,14 @@ dissect_kafka_create_topics_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
     /* [topic_error_code] */
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
-                                     &subti, "Topic Error Codes");
+                                     &subti, "Topics");
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 5, api_version,
-                                 &dissect_kafka_create_topics_response_topic_error_code, NULL);
+                                 &dissect_kafka_create_topics_response_topic, NULL);
+    proto_item_set_end(subti, tvb, offset);
 
     if (api_version >= 5) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
     }
-
-    proto_item_set_end(subti, tvb, offset);
 
     return offset;
 }
