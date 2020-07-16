@@ -4528,10 +4528,8 @@ dissect_kafka_join_group_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *
 
     col_append_fstr(pinfo->cinfo, COL_INFO,
                     " (Group=%s, Member=%s)",
-                    tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                       group_start, group_len, ENC_UTF_8),
-                    tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                       member_start, member_len, ENC_UTF_8));
+                    kafka_tvb_get_string(tvb, group_start, group_len),
+                    kafka_tvb_get_string(tvb, member_start, member_len));
 
     if (api_version >= 6) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
