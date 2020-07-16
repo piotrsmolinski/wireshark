@@ -269,6 +269,7 @@ static expert_field ei_kafka_bad_record_length = EI_INIT;
 static expert_field ei_kafka_bad_varint = EI_INIT;
 static expert_field ei_kafka_bad_message_set_length = EI_INIT;
 static expert_field ei_kafka_unknown_message_magic = EI_INIT;
+static expert_field ei_kafka_pdu_length_mismatch = EI_INIT;
 
 typedef gint16 kafka_api_key_t;
 typedef gint16 kafka_api_version_t;
@@ -8853,148 +8854,148 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 if (tvb_get_ntohs(tvb, offset) == KAFKA_ACK_NOT_REQUIRED) {
                     has_response = 0;
                 }
-                /*offset =*/ dissect_kafka_produce_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_produce_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_FETCH:
-                /*offset =*/ dissect_kafka_fetch_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_fetch_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_OFFSETS:
-                /*offset =*/ dissect_kafka_offsets_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_offsets_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_METADATA:
-                /*offset =*/ dissect_kafka_metadata_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_metadata_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_LEADER_AND_ISR:
-                /*offset =*/ dissect_kafka_leader_and_isr_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_leader_and_isr_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_STOP_REPLICA:
-                /*offset =*/ dissect_kafka_stop_replica_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_stop_replica_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_UPDATE_METADATA:
-                /*offset =*/ dissect_kafka_update_metadata_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_update_metadata_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_CONTROLLED_SHUTDOWN:
-                /*offset =*/ dissect_kafka_controlled_shutdown_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_controlled_shutdown_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_OFFSET_COMMIT:
-                /*offset =*/ dissect_kafka_offset_commit_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_offset_commit_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_OFFSET_FETCH:
-                /*offset =*/ dissect_kafka_offset_fetch_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_offset_fetch_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_FIND_COORDINATOR:
-                /*offset =*/ dissect_kafka_find_coordinator_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_find_coordinator_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_JOIN_GROUP:
-                /*offset =*/ dissect_kafka_join_group_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_join_group_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_HEARTBEAT:
-                /*offset =*/ dissect_kafka_heartbeat_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_heartbeat_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_LEAVE_GROUP:
-                /*offset =*/ dissect_kafka_leave_group_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_leave_group_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_SYNC_GROUP:
-                /*offset =*/ dissect_kafka_sync_group_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_sync_group_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DESCRIBE_GROUPS:
-                /*offset =*/ dissect_kafka_describe_groups_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_describe_groups_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_LIST_GROUPS:
-                /*offset =*/ dissect_kafka_list_groups_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_list_groups_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_SASL_HANDSHAKE:
-                /*offset =*/ dissect_kafka_sasl_handshake_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_sasl_handshake_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_API_VERSIONS:
-                /*offset =*/ dissect_kafka_api_versions_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_api_versions_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_CREATE_TOPICS:
-                /*offset =*/ dissect_kafka_create_topics_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_create_topics_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DELETE_TOPICS:
-                /*offset =*/ dissect_kafka_delete_topics_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_delete_topics_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DELETE_RECORDS:
-                /*offset =*/ dissect_kafka_delete_records_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_delete_records_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_INIT_PRODUCER_ID:
-                /*offset =*/ dissect_kafka_init_producer_id_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_init_producer_id_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_OFFSET_FOR_LEADER_EPOCH:
-                /*offset =*/ dissect_kafka_offset_for_leader_epoch_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_offset_for_leader_epoch_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_ADD_PARTITIONS_TO_TXN:
-                /*offset =*/ dissect_kafka_add_partitions_to_txn_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_add_partitions_to_txn_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_ADD_OFFSETS_TO_TXN:
-                /*offset =*/ dissect_kafka_add_offsets_to_txn_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_add_offsets_to_txn_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_END_TXN:
-                /*offset =*/ dissect_kafka_end_txn_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_end_txn_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_WRITE_TXN_MARKERS:
-                /*offset =*/ dissect_kafka_write_txn_markers_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_write_txn_markers_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_TXN_OFFSET_COMMIT:
-                /*offset =*/ dissect_kafka_txn_offset_commit_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_txn_offset_commit_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DESCRIBE_ACLS:
-                /*offset =*/ dissect_kafka_describe_acls_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_describe_acls_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_CREATE_ACLS:
-                /*offset =*/ dissect_kafka_create_acls_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_create_acls_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DELETE_ACLS:
-                /*offset =*/ dissect_kafka_delete_acls_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_delete_acls_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DESCRIBE_CONFIGS:
-                /*offset =*/ dissect_kafka_describe_configs_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_describe_configs_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_ALTER_CONFIGS:
-                /*offset =*/ dissect_kafka_alter_configs_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_alter_configs_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_ALTER_REPLICA_LOG_DIRS:
-                /*offset =*/ dissect_kafka_alter_replica_log_dirs_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_alter_replica_log_dirs_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DESCRIBE_LOG_DIRS:
-                /*offset =*/ dissect_kafka_describe_log_dirs_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_describe_log_dirs_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_CREATE_PARTITIONS:
-                /*offset =*/ dissect_kafka_create_partitions_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_create_partitions_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_SASL_AUTHENTICATE:
-                /*offset =*/ dissect_kafka_sasl_authenticate_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_sasl_authenticate_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_CREATE_DELEGATION_TOKEN:
-                /*offset =*/ dissect_kafka_create_delegation_token_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_create_delegation_token_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_RENEW_DELEGATION_TOKEN:
-                /*offset =*/ dissect_kafka_renew_delegation_token_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_renew_delegation_token_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_EXPIRE_DELEGATION_TOKEN:
-                /*offset =*/ dissect_kafka_expire_delegation_token_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_expire_delegation_token_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DESCRIBE_DELEGATION_TOKEN:
-                /*offset =*/ dissect_kafka_describe_delegation_token_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_describe_delegation_token_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DELETE_GROUPS:
-                /*offset =*/ dissect_kafka_delete_groups_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_delete_groups_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_ELECT_LEADERS:
-                /*offset =*/ dissect_kafka_elect_leaders_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_elect_leaders_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_INC_ALTER_CONFIGS:
-                /*offset =*/ dissect_kafka_inc_alter_configs_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_inc_alter_configs_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_ALTER_PARTITION_REASSIGNMENTS:
-                /*offset =*/ dissect_kafka_alter_partition_reassignments_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_alter_partition_reassignments_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_LIST_PARTITION_REASSIGNMENTS:
-                /*offset =*/ dissect_kafka_list_partition_reassignments_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_list_partition_reassignments_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_OFFSET_DELETE:
-                /*offset =*/ dissect_kafka_offset_delete_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_offset_delete_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
         }
 
@@ -9067,154 +9068,158 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
 
         switch (matcher->api_key) {
             case KAFKA_PRODUCE:
-                /*offset =*/ dissect_kafka_produce_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_produce_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_FETCH:
-                /*offset =*/ dissect_kafka_fetch_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_fetch_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_OFFSETS:
-                /*offset =*/ dissect_kafka_offsets_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_offsets_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_METADATA:
-                /*offset =*/ dissect_kafka_metadata_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_metadata_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_LEADER_AND_ISR:
-                /*offset =*/ dissect_kafka_leader_and_isr_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_leader_and_isr_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_STOP_REPLICA:
-                /*offset =*/ dissect_kafka_stop_replica_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_stop_replica_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_UPDATE_METADATA:
-                /*offset =*/ dissect_kafka_update_metadata_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_update_metadata_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_CONTROLLED_SHUTDOWN:
-                /*offset =*/ dissect_kafka_controlled_shutdown_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_controlled_shutdown_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_OFFSET_COMMIT:
-                /*offset =*/ dissect_kafka_offset_commit_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_offset_commit_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_OFFSET_FETCH:
-                /*offset =*/ dissect_kafka_offset_fetch_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_offset_fetch_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_FIND_COORDINATOR:
-                /*offset =*/ dissect_kafka_find_coordinator_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_find_coordinator_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_JOIN_GROUP:
-                /*offset =*/ dissect_kafka_join_group_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_join_group_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_HEARTBEAT:
-                /*offset =*/ dissect_kafka_heartbeat_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_heartbeat_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_LEAVE_GROUP:
-                /*offset =*/ dissect_kafka_leave_group_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_leave_group_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_SYNC_GROUP:
-                /*offset =*/ dissect_kafka_sync_group_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_sync_group_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DESCRIBE_GROUPS:
-                /*offset =*/ dissect_kafka_describe_groups_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_describe_groups_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_LIST_GROUPS:
-                /*offset =*/ dissect_kafka_list_groups_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_list_groups_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_SASL_HANDSHAKE:
-                /*offset =*/ dissect_kafka_sasl_handshake_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_sasl_handshake_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_API_VERSIONS:
-                /*offset =*/ dissect_kafka_api_versions_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_api_versions_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_CREATE_TOPICS:
-                /*offset =*/ dissect_kafka_create_topics_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_create_topics_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DELETE_TOPICS:
-                /*offset =*/ dissect_kafka_delete_topics_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_delete_topics_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DELETE_RECORDS:
-                /*offset =*/ dissect_kafka_delete_records_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_delete_records_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_INIT_PRODUCER_ID:
-                /*offset =*/ dissect_kafka_init_producer_id_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_init_producer_id_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_OFFSET_FOR_LEADER_EPOCH:
-                /*offset =*/ dissect_kafka_offset_for_leader_epoch_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_offset_for_leader_epoch_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_ADD_PARTITIONS_TO_TXN:
-                /*offset =*/ dissect_kafka_add_partitions_to_txn_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_add_partitions_to_txn_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_ADD_OFFSETS_TO_TXN:
-                /*offset =*/ dissect_kafka_add_offsets_to_txn_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_add_offsets_to_txn_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_END_TXN:
-                /*offset =*/ dissect_kafka_end_txn_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_end_txn_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_WRITE_TXN_MARKERS:
-                /*offset =*/ dissect_kafka_write_txn_markers_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_write_txn_markers_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_TXN_OFFSET_COMMIT:
-                /*offset =*/ dissect_kafka_txn_offset_commit_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_txn_offset_commit_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DESCRIBE_ACLS:
-                /*offset =*/ dissect_kafka_describe_acls_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_describe_acls_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_CREATE_ACLS:
-                /*offset =*/ dissect_kafka_create_acls_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_create_acls_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DELETE_ACLS:
-                /*offset =*/ dissect_kafka_delete_acls_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_delete_acls_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DESCRIBE_CONFIGS:
-                /*offset =*/ dissect_kafka_describe_configs_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_describe_configs_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_ALTER_CONFIGS:
-                /*offset =*/ dissect_kafka_alter_configs_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_alter_configs_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_ALTER_REPLICA_LOG_DIRS:
-                /*offset =*/ dissect_kafka_alter_replica_log_dirs_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_alter_replica_log_dirs_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DESCRIBE_LOG_DIRS:
-                /*offset =*/ dissect_kafka_describe_log_dirs_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_describe_log_dirs_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_CREATE_PARTITIONS:
-                /*offset =*/ dissect_kafka_create_partitions_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_create_partitions_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_SASL_AUTHENTICATE:
-                /*offset =*/ dissect_kafka_sasl_authenticate_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_sasl_authenticate_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_CREATE_DELEGATION_TOKEN:
-                /*offset =*/ dissect_kafka_create_delegation_token_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_create_delegation_token_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_RENEW_DELEGATION_TOKEN:
-                /*offset =*/ dissect_kafka_renew_delegation_token_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_renew_delegation_token_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_EXPIRE_DELEGATION_TOKEN:
-                /*offset =*/ dissect_kafka_expire_delegation_token_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_expire_delegation_token_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DESCRIBE_DELEGATION_TOKEN:
-                /*offset =*/ dissect_kafka_describe_delegation_token_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_describe_delegation_token_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_DELETE_GROUPS:
-                /*offset =*/ dissect_kafka_delete_groups_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_delete_groups_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_ELECT_LEADERS:
-                /*offset =*/ dissect_kafka_elect_leaders_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_elect_leaders_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_INC_ALTER_CONFIGS:
-                /*offset =*/ dissect_kafka_inc_alter_configs_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_inc_alter_configs_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_ALTER_PARTITION_REASSIGNMENTS:
-                /*offset =*/ dissect_kafka_alter_partition_reassignments_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_alter_partition_reassignments_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_LIST_PARTITION_REASSIGNMENTS:
-                /*offset =*/ dissect_kafka_list_partition_reassignments_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_list_partition_reassignments_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_OFFSET_DELETE:
-                /*offset =*/ dissect_kafka_offset_delete_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                offset = dissect_kafka_offset_delete_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
         }
 
     }
 
-    return tvb_captured_length(tvb);
+    if (offset != (int)pdu_length + 4) {
+        expert_add_info(pinfo, root_ti, &ei_kafka_pdu_length_mismatch);
+    }
+
+    return offset;
 }
 
 /*
@@ -10166,6 +10171,8 @@ proto_register_kafka_expert_module(const int proto) {
                     { "kafka.ei_kafka_bad_message_set_length", PI_MALFORMED, PI_WARN, "Message set size does not match content", EXPFILL }},
             { &ei_kafka_unknown_message_magic,
                     { "kafka.unknown_message_magic", PI_MALFORMED, PI_WARN, "Invalid message magic field", EXPFILL }},
+            { &ei_kafka_pdu_length_mismatch,
+                    { "kafka.pdu_length_mismatch", PI_MALFORMED, PI_WARN, "Dissected message does not end at the pdu length offset", EXPFILL }},
     };
     expert_kafka = expert_register_protocol(proto);
     expert_register_field_array(expert_kafka, ei, array_length(ei));
