@@ -708,6 +708,7 @@ static gboolean kafka_show_string_bytes_lengths = FALSE;
 typedef struct _kafka_query_response_t {
     kafka_api_key_t     api_key;
     kafka_api_version_t api_version;
+    guint32  correlation_id;
     guint32  request_frame;
     guint32  response_frame;
     gboolean response_found;
@@ -8697,15 +8698,49 @@ dissect_kafka_offset_delete_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 
 /* MAIN */
 
+static wmem_tree_t *
+dissect_kafka_get_match_map(packet_info *pinfo)
+{
+    conversation_t         *conversation;
+    wmem_tree_t            *match_map;
+    conversation = find_or_create_conversation(pinfo);
+    match_map    = (wmem_tree_t *) conversation_get_proto_data(conversation, proto_kafka);
+    if (match_map == NULL) {
+        match_map = wmem_tree_new(wmem_file_scope());
+        conversation_add_proto_data(conversation, proto_kafka, match_map);
+
+    }
+    return match_map;
+}
+
+static gboolean
+dissect_kafka_insert_match(packet_info *pinfo, guint32 correlation_id, kafka_query_response_t *match)
+{
+    if (wmem_tree_lookup32(dissect_kafka_get_match_map(pinfo), correlation_id)) {
+        return 0;
+    }
+    wmem_tree_insert32(dissect_kafka_get_match_map(pinfo), correlation_id, match);
+    return 1;
+}
+
+static kafka_query_response_t *
+dissect_kafka_lookup_match(packet_info *pinfo, guint32 correlation_id)
+{
+    kafka_query_response_t *match = wmem_tree_lookup32(dissect_kafka_get_match_map(pinfo), correlation_id);
+    return match;
+}
+
+
 static int
 dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U_)
 {
     proto_item             *root_ti, *ti;
     proto_tree             *kafka_tree;
     int                     offset  = 0;
-    kafka_query_response_t *matcher = NULL;
-    conversation_t         *conversation;
-    wmem_queue_t           *match_queue;
+    guint32                 pdu_length;
+    guint32                 pdu_correlation_id;
+    kafka_query_response_t *matcher;
+    gboolean                has_response = 1;
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "Kafka");
     col_clear(pinfo->cinfo, COL_INFO);
@@ -8714,58 +8749,34 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
 
     kafka_tree = proto_item_add_subtree(root_ti, ett_kafka);
 
+    pdu_length = tvb_get_ntohl(tvb, offset);
     proto_tree_add_item(kafka_tree, hf_kafka_len, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
-    conversation = find_or_create_conversation(pinfo);
-    /* Create match_queue for this conversation */
-    match_queue  = (wmem_queue_t *) conversation_get_proto_data(conversation, proto_kafka);
-    if (match_queue == NULL) {
-        match_queue = wmem_queue_new(wmem_file_scope());
-        conversation_add_proto_data(conversation, proto_kafka, match_queue);
-    }
-
-    if (PINFO_FD_VISITED(pinfo)) {
-        matcher = (kafka_query_response_t *) p_get_proto_data(wmem_file_scope(), pinfo, proto_kafka, 0);
-    }
-
     if (pinfo->destport == pinfo->match_uint) {
+
         /* Request (as directed towards server port) */
-        if (matcher == NULL) {
-            matcher = wmem_new(wmem_file_scope(), kafka_query_response_t);
 
-            matcher->api_key        = tvb_get_ntohs(tvb, offset);
-            matcher->api_version    = tvb_get_ntohs(tvb, offset+2);
-            matcher->request_frame  = pinfo->num;
-            matcher->response_found = FALSE;
-            matcher->flexible_api   = kafka_is_api_version_flexible(matcher->api_key, matcher->api_version);
+        /* in the request PDU the correlation id comes after api_key and api_version */
+        pdu_correlation_id = tvb_get_ntohl(tvb, offset+4);
 
-            p_add_proto_data(wmem_file_scope(), pinfo, proto_kafka, 0, matcher);
+        matcher = wmem_new(wmem_file_scope(), kafka_query_response_t);
 
-            /* The kafka server always responds, except in the case of a produce
-             * request whose RequiredAcks field is 0. This field is at a dynamic
-             * offset into the request, so to avoid too much prefetch logic we
-             * simply don't queue produce requests here. If it is a produce
-             * request with a non-zero RequiredAcks field it gets queued later.
-             */
-            if (matcher->api_key != KAFKA_PRODUCE) {
-                wmem_queue_push(match_queue, matcher);
-            }
-        }
+        matcher->api_key        = tvb_get_ntohs(tvb, offset);
+        matcher->api_version    = tvb_get_ntohs(tvb, offset+2);
+        matcher->correlation_id = pdu_correlation_id;
+        matcher->request_frame  = pinfo->num;
+        matcher->response_found = FALSE;
+        matcher->flexible_api   = kafka_is_api_version_flexible(matcher->api_key, matcher->api_version);
 
         col_add_fstr(pinfo->cinfo, COL_INFO, "Kafka %s v%d Request",
                      kafka_api_key_to_str(matcher->api_key),
                      matcher->api_version);
+
         /* Also add to protocol root */
         proto_item_append_text(root_ti, " (%s v%d Request)",
                                kafka_api_key_to_str(matcher->api_key),
                                matcher->api_version);
-
-        if (matcher->response_found) {
-            ti = proto_tree_add_uint(kafka_tree, hf_kafka_response_frame, tvb,
-                    0, 0, matcher->response_frame);
-            proto_item_set_generated(ti);
-        }
 
         /* for the header implementation check RequestHeaderData class */
 
@@ -8804,10 +8815,14 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
 
         switch (matcher->api_key) {
             case KAFKA_PRODUCE:
-                /* Produce requests may need delayed queueing, see the more
-                 * detailed comment above. */
-                if (tvb_get_ntohs(tvb, offset) != KAFKA_ACK_NOT_REQUIRED && !PINFO_FD_VISITED(pinfo)) {
-                    wmem_queue_push(match_queue, matcher);
+                /* The kafka server always responds, except in the case of a produce
+                 * request whose RequiredAcks field is 0. This field is at a dynamic
+                 * offset into the request, so to avoid too much prefetch logic we
+                 * simply don't queue produce requests here. If it is a produce
+                 * request with a non-zero RequiredAcks field it gets queued later.
+                 */
+                if (tvb_get_ntohs(tvb, offset) == KAFKA_ACK_NOT_REQUIRED) {
+                    has_response = 0;
                 }
                 /*offset =*/ dissect_kafka_produce_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
@@ -8953,29 +8968,26 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 /*offset =*/ dissect_kafka_offset_delete_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
         }
+
+        if (!(has_response && dissect_kafka_insert_match(pinfo, pdu_correlation_id, matcher))) {
+            wmem_free(wmem_file_scope(), matcher);
+        }
+
     }
     else {
         /* Response */
 
+        /* in the response PDU the correlation id comes directly after frame length */
+        pdu_correlation_id = tvb_get_ntohl(tvb, offset);
         proto_tree_add_item(kafka_tree, hf_kafka_correlation_id, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
 
+        matcher = dissect_kafka_lookup_match(pinfo, pdu_correlation_id);
+
         if (matcher == NULL) {
-            if (wmem_queue_count(match_queue) > 0) {
-                matcher = (kafka_query_response_t *) wmem_queue_peek(match_queue);
-            }
-            if (matcher == NULL || matcher->request_frame >= pinfo->num) {
-                col_set_str(pinfo->cinfo, COL_INFO, "Kafka Response (Undecoded, Request Missing)");
-                expert_add_info(pinfo, root_ti, &ei_kafka_request_missing);
-                return tvb_captured_length(tvb);
-            }
-
-            wmem_queue_pop(match_queue);
-
-            matcher->response_frame = pinfo->num;
-            matcher->response_found = TRUE;
-
-            p_add_proto_data(wmem_file_scope(), pinfo, proto_kafka, 0, matcher);
+            col_set_str(pinfo->cinfo, COL_INFO, "Kafka Response (Undecoded, Request Missing)");
+            expert_add_info(pinfo, root_ti, &ei_kafka_request_missing);
+            return tvb_captured_length(tvb);
         }
 
         col_add_fstr(pinfo->cinfo, COL_INFO, "Kafka %s v%d Response",
