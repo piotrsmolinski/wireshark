@@ -1127,6 +1127,21 @@ dissect_kafka_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *
     }
 }
 
+/*
+ * Retrieve null-terminated copy of string from a package.
+ * The function wraps the tvb_get_string_enc that if given string is NULL, which is represented as negative length,
+ * a substitute string is returned instead of failing.
+ */
+static gint8*
+kafka_tvb_get_string(tvbuff_t *tvb, int offset, int length)
+{
+    if (length>=0) {
+        return tvb_get_string_enc(wmem_packet_scope(), tvb, offset, length, ENC_UTF_8);;
+    } else {
+        return "[ Null ]";
+    }
+}
+
 static int
 dissect_kafka_regular_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset,
                     int *p_offset, int *p_length)
@@ -4999,8 +5014,8 @@ dissect_kafka_describe_groups_response_member(tvbuff_t *tvb, packet_info *pinfo,
 {
     proto_item *subti;
     proto_tree *subtree;
-    int member_start, member_len;
-    int instance_start, instance_len;
+    int member_start, member_len = -1;
+    int instance_start, instance_len = -1;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_member, &subti, "Member");
 
@@ -5034,15 +5049,14 @@ dissect_kafka_describe_groups_response_member(tvbuff_t *tvb, packet_info *pinfo,
 
     if (api_version < 4) {
         proto_item_append_text(subti, " (Member=%s)",
-                               tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                                  member_start, member_len, ENC_UTF_8));
+                               kafka_tvb_get_string(tvb, member_start, member_len));
+
     } else {
         proto_item_append_text(subti, " (Member=%s, Instance=%s)",
-                               tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                                  member_start, member_len, ENC_UTF_8),
-                               tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                                  instance_start, instance_len, ENC_UTF_8));
+                               kafka_tvb_get_string(tvb, member_start, member_len),
+                               kafka_tvb_get_string(tvb, instance_start, instance_len));
     }
+
     return offset;
 }
 
@@ -5080,8 +5094,7 @@ dissect_kafka_describe_groups_response_group(tvbuff_t *tvb, packet_info *pinfo, 
     proto_item_set_end(subsubti, tvb, offset);
 
     if (api_version >= 3) {
-        proto_tree_add_item(subtree, hf_kafka_group_authorized_ops, tvb, offset, 4, ENC_BIG_ENDIAN);
-        offset += 4;
+        offset = dissect_kafka_int32(subtree, hf_kafka_group_authorized_ops, tvb, pinfo, offset, NULL);
     }
 
     if (api_version >= 5) {
@@ -5090,8 +5103,7 @@ dissect_kafka_describe_groups_response_group(tvbuff_t *tvb, packet_info *pinfo, 
 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Group=%s)",
-                           tvb_get_string_enc(wmem_packet_scope(), tvb,
-                                              group_start, group_len, ENC_UTF_8));
+                           kafka_tvb_get_string(tvb, group_start, group_len));
 
     return offset;
 }
