@@ -8756,7 +8756,7 @@ dissect_kafka_insert_match(packet_info *pinfo, guint32 correlation_id, kafka_que
 static kafka_query_response_t *
 dissect_kafka_lookup_match(packet_info *pinfo, guint32 correlation_id)
 {
-    kafka_query_response_t *match = wmem_tree_lookup32(dissect_kafka_get_match_map(pinfo), correlation_id);
+    kafka_query_response_t *match = (kafka_query_response_t*)wmem_tree_lookup32(dissect_kafka_get_match_map(pinfo), correlation_id);
     return match;
 }
 
