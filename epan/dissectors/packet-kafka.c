@@ -1064,6 +1064,22 @@ dissect_kafka_varuint(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info 
     return offset + len;
 }
 
+
+/*
+ * Retrieve null-terminated copy of string from a package.
+ * The function wraps the tvb_get_string_enc that if given string is NULL, which is represented as negative length,
+ * a substitute string is returned instead of failing.
+ */
+static gint8*
+kafka_tvb_get_string(tvbuff_t *tvb, int offset, int length)
+{
+    if (length>=0) {
+        return tvb_get_string_enc(wmem_packet_scope(), tvb, offset, length, ENC_UTF_8);;
+    } else {
+        return "[ Null ]";
+    }
+}
+
 /*
  * Pre KIP-482 coding. The string is prefixed with 16-bit signed integer. Value -1 means null.
  */
@@ -1085,7 +1101,7 @@ dissect_kafka_regular_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packe
         proto_tree_add_string(tree, hf_item, tvb, offset, 2, NULL);
     } else {
         proto_tree_add_string(tree, hf_item, tvb, offset, length + 2,
-                tvb_get_string_enc(wmem_packet_scope(), tvb, offset + 2, length, ENC_UTF_8));
+                              kafka_tvb_get_string(tvb, offset + 2, length));
     }
 
     if (p_offset != NULL) *p_offset = offset + 2;
@@ -1120,7 +1136,7 @@ dissect_kafka_compact_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packe
         proto_tree_add_string(tree, hf_item, tvb, offset, len, NULL);
     } else {
         proto_tree_add_string(tree, hf_item, tvb, offset, len + (gint)length - 1,
-                tvb_get_string_enc(wmem_packet_scope(), tvb, offset + len, (gint)length - 1, ENC_UTF_8));
+                              kafka_tvb_get_string(tvb, offset + len, (gint)length - 1));
     }
 
     if (p_offset != NULL) *p_offset = offset + len;
@@ -1146,21 +1162,6 @@ dissect_kafka_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *
         return dissect_kafka_compact_string(tree, hf_item, tvb, pinfo, offset, p_offset, p_length);
     } else {
         return dissect_kafka_regular_string(tree, hf_item, tvb, pinfo, offset, p_offset, p_length);
-    }
-}
-
-/*
- * Retrieve null-terminated copy of string from a package.
- * The function wraps the tvb_get_string_enc that if given string is NULL, which is represented as negative length,
- * a substitute string is returned instead of failing.
- */
-static gint8*
-kafka_tvb_get_string(tvbuff_t *tvb, int offset, int length)
-{
-    if (length>=0) {
-        return tvb_get_string_enc(wmem_packet_scope(), tvb, offset, length, ENC_UTF_8);;
-    } else {
-        return "[ Null ]";
     }
 }
 
