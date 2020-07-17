@@ -1,5 +1,5 @@
 /* packet-kafka.c
- * Routines for Apache Kafka Protocol dissection (version 0.8 - 2.3)
+ * Routines for Apache Kafka Protocol dissection (version 0.8 - 2.5)
  * Copyright 2013, Evan Huus <eapache@gmail.com>
  * Update from Kafka 0.10.1.0 to 2.5 by Piotr Smolinski <piotr.smolinski@confluent.io>
  *
