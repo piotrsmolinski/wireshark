@@ -391,7 +391,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_CREATE_TOPICS,                 "CreateTopics",
       0, 6, 5 },
     { KAFKA_DELETE_TOPICS,                 "DeleteTopics",
-      0, 4, 4 },
+      0, 5, 4 },
     { KAFKA_DELETE_RECORDS,                "DeleteRecords",
       0, 2, 2 },
     { KAFKA_INIT_PRODUCER_ID,              "InitProducerId",
