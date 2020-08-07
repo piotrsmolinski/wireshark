@@ -546,6 +546,7 @@ static const value_string kafka_errors[] = {
     { 86, "Deleting offsets of a topic is forbidden while the consumer group is actively subscribed to it" },
     { 87, "This record has failed the validation on broker and hence will be rejected" },
     { 88, "There are unstable offsets that need to be cleared" },
+    { 89, "The throttling quota has been exceeded" },
     { 0, NULL }
 };
 
