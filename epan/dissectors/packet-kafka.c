@@ -365,7 +365,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_LEADER_AND_ISR,                "LeaderAndIsr",
       0, 4, 4 },
     { KAFKA_STOP_REPLICA,                  "StopReplica",
-      0, 2, 2 },
+      0, 3, 2 },
     { KAFKA_UPDATE_METADATA,               "UpdateMetadata",
       0, 6, 6 },
     { KAFKA_CONTROLLED_SHUTDOWN,           "ControlledShutdown",
@@ -3085,6 +3085,75 @@ dissect_kafka_stop_replica_request_topic(tvbuff_t *tvb, packet_info *pinfo, prot
 }
 
 static int
+dissect_kafka_stop_replica_request_partition_state(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                               int offset, kafka_api_version_t api_version)
+{
+    proto_item *subti;
+    proto_tree *subtree;
+    kafka_partition_t partition;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_partition,
+                                     &subti, "Partition");
+
+    /* partition */
+    partition = (gint32) tvb_get_ntohl(tvb, offset);
+    proto_tree_add_item(subtree, hf_kafka_partition_id, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    /* leader_epoch */
+    proto_tree_add_item(subtree, hf_kafka_leader_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
+    offset += 4;
+
+    /* delete_partition */
+    proto_tree_add_item(subtree, hf_kafka_delete_partitions, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset += 1;
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
+    }
+
+    proto_item_set_end(subti, tvb, offset);
+    proto_item_append_text(subti, " (partition=%d)", partition);
+
+    return offset;
+}
+
+static int
+dissect_kafka_stop_replica_request_topic_state(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                         int offset, kafka_api_version_t api_version)
+{
+    proto_item *subti, *subsubti;
+    proto_tree *subtree, *subsubtree;
+    int topic_start, topic_len;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_topic,
+                                     &subti, "Topic");
+
+    /* topic */
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 2, &topic_start, &topic_len);
+
+    subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
+                                        ett_kafka_partitions,
+                                        &subsubti, "Partitions");
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 2, api_version,
+                                 &dissect_kafka_stop_replica_request_partition_state, NULL);
+    proto_item_set_end(subsubti, tvb, offset);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
+    }
+
+    proto_item_set_end(subti, tvb, offset);
+    proto_item_append_text(subti, " (Topic=%s)",
+                           tvb_get_string_enc(wmem_packet_scope(), tvb,
+                                              topic_start, topic_len, ENC_UTF_8));
+
+    return offset;
+}
+
+static int
 dissect_kafka_stop_replica_request_ungrouped_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                          int offset, kafka_api_version_t api_version _U_)
 {
@@ -3138,8 +3207,10 @@ dissect_kafka_stop_replica_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree
     }
 
     /* delete_partitions */
-    proto_tree_add_item(tree, hf_kafka_delete_partitions, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
+    if (api_version <= 2) {
+        proto_tree_add_item(tree, hf_kafka_delete_partitions, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+    }
 
     /* in V1 list of topic/partition was changed to list of topics with their partitions */
     if (api_version == 0) {
@@ -3150,13 +3221,21 @@ dissect_kafka_stop_replica_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree
         offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
                                      &dissect_kafka_stop_replica_request_ungrouped_partition, NULL);
         proto_item_set_end(subti, tvb, offset);
-    } else {
+    } else if (api_version <= 2) {
         /* [topics] */
         subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                          ett_kafka_topics,
                                          &subti, "Topics");
         offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 2, api_version,
                                              &dissect_kafka_stop_replica_request_topic, NULL);
+        proto_item_set_end(subti, tvb, offset);
+    } else {
+        /* [topic_states] */
+        subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                         ett_kafka_topics,
+                                         &subti, "Topics");
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 2, api_version,
+                                     &dissect_kafka_stop_replica_request_topic_state, NULL);
         proto_item_set_end(subti, tvb, offset);
     }
 
