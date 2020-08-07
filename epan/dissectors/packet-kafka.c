@@ -256,6 +256,7 @@ static int ett_kafka_tagged_fields = -1;
 static int ett_kafka_tagged_field = -1;
 static int ett_kafka_record_errors = -1;
 static int ett_kafka_record_error = -1;
+static int ett_kafka_states_filter = -1;
 
 static expert_field ei_kafka_request_missing = EI_INIT;
 static expert_field ei_kafka_unknown_api_key = EI_INIT;
@@ -383,7 +384,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_DESCRIBE_GROUPS,               "DescribeGroups",
       0, 5, 5 },
     { KAFKA_LIST_GROUPS,                   "ListGroups",
-      0, 3, 3 },
+      0, 4, 3 },
     { KAFKA_SASL_HANDSHAKE,                "SaslHandshake",
       0, 1, -1 },
     { KAFKA_API_VERSIONS,                  "ApiVersions",
@@ -5203,9 +5204,30 @@ dissect_kafka_describe_groups_response(tvbuff_t *tvb, packet_info *pinfo, proto_
 /* LIST_GROUPS REQUEST/RESPONSE */
 
 static int
+dissect_kafka_list_groups_request_state(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                               int offset, kafka_api_version_t api_version)
+{
+    /* group_id */
+    offset = dissect_kafka_string(tree, hf_kafka_group_state, tvb, pinfo, offset, api_version >= 4, NULL, NULL);
+
+    return offset;
+}
+
+static int
 dissect_kafka_list_groups_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                   kafka_api_version_t api_version)
 {
+
+    proto_item *subti;
+    proto_tree *subtree;
+
+    /* states_filter */
+    if (api_version >= 4) {
+        subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_states_filter, &subti, "States Filter");
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 3, api_version,
+                                     &dissect_kafka_list_groups_request_state, NULL);
+        proto_item_set_end(subti, tvb, offset);
+    }
 
     if (api_version >= 3) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -5216,7 +5238,7 @@ dissect_kafka_list_groups_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree 
 
 static int
 dissect_kafka_list_groups_response_group(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                                         kafka_api_version_t api_version _U_)
+                                         kafka_api_version_t api_version)
 {
     proto_item *subti;
     proto_tree *subtree;
@@ -5232,6 +5254,11 @@ dissect_kafka_list_groups_response_group(tvbuff_t *tvb, packet_info *pinfo, prot
     /* protocol_type */
     offset = dissect_kafka_string(subtree, hf_kafka_protocol_type, tvb, pinfo, offset, api_version >= 3,
                                   &protocol_type_start, &protocol_type_len);
+    /* group_state */
+    if (api_version >= 4 ) {
+        offset = dissect_kafka_string(subtree, hf_kafka_group_state, tvb, pinfo, offset, api_version >= 3,
+                                      NULL, NULL);
+    }
 
     if (api_version >= 3) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
@@ -10223,6 +10250,7 @@ proto_register_kafka_protocol_subtrees(const int proto _U_)
         &ett_kafka_tagged_field,
         &ett_kafka_record_errors,
         &ett_kafka_record_error,
+        &ett_kafka_states_filter,
     };
     proto_register_subtree_array(ett, array_length(ett));
 }
