@@ -425,7 +425,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_SASL_AUTHENTICATE,             "SaslAuthenticate",
       0, 2, 2 },
     { KAFKA_CREATE_PARTITIONS,             "CreatePartitions",
-      0, 2, 2 },
+      0, 3, 2 },
     { KAFKA_CREATE_DELEGATION_TOKEN,       "CreateDelegationToken",
       0, 2, 2 },
     { KAFKA_RENEW_DELEGATION_TOKEN,        "RenewDelegationToken",
