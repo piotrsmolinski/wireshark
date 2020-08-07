@@ -162,11 +162,14 @@ static int hf_kafka_acl_permission_type = -1;
 static int hf_kafka_config_resource_type = -1;
 static int hf_kafka_config_resource_name = -1;
 static int hf_kafka_config_include_synonyms = -1;
+static int hf_kafka_config_include_documentation = -1;
 static int hf_kafka_config_source = -1;
 static int hf_kafka_config_readonly = -1;
 static int hf_kafka_config_default = -1;
 static int hf_kafka_config_sensitive = -1;
 static int hf_kafka_config_operation = -1;
+static int hf_kafka_config_type = -1;
+static int hf_kafka_config_documentation = -1;
 static int hf_kafka_log_dir = -1;
 static int hf_kafka_segment_size = -1;
 static int hf_kafka_offset_lag = -1;
@@ -416,7 +419,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_DELETE_ACLS,                   "DeleteAcls",
       0, 2, 2 },
     { KAFKA_DESCRIBE_CONFIGS,              "DescribeConfigs",
-      0, 2, -1 },
+      0, 3, -1 },
     { KAFKA_ALTER_CONFIGS,                 "AlterConfigs",
       0, 1, -1 },
     { KAFKA_ALTER_REPLICA_LOG_DIRS,        "AlterReplicaLogDirs",
@@ -694,6 +697,20 @@ static const value_string config_operations[] = {
     { 2, "Append" },
     { 3, "Subtract" },
     { 0, NULL }
+};
+
+static const value_string config_types[] = {
+        { 0, "Unknown" },
+        { 1, "Boolean" },
+        { 2, "String" },
+        { 3, "Int" },
+        { 4, "Short" },
+        { 5, "Long" },
+        { 6, "Double" },
+        { 7, "List" },
+        { 8, "Class" },
+        { 9, "Password" },
+        { 0, NULL }
 };
 
 static const value_string election_types[] = {
@@ -7106,6 +7123,11 @@ dissect_kafka_describe_configs_request(tvbuff_t *tvb, packet_info *pinfo, proto_
         offset += 1;
     }
 
+    if (api_version >= 3) {
+        proto_tree_add_item(subtree, hf_kafka_config_include_documentation, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+    }
+
     proto_item_set_end(subti, tvb, offset);
 
     return offset;
@@ -7170,6 +7192,15 @@ dissect_kafka_describe_configs_response_entry(tvbuff_t *tvb, packet_info *pinfo,
                                      &dissect_kafka_describe_configs_response_synonym, NULL);
 
         proto_item_set_end(subsubti, tvb, offset);
+    }
+
+    if (api_version >= 3) {
+        proto_tree_add_item(subtree, hf_kafka_config_type, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset += 1;
+    }
+
+    if (api_version >= 3) {
+        offset = dissect_kafka_string(subtree, hf_kafka_config_documentation, tvb, pinfo, offset, 0, NULL, NULL);
     }
 
     proto_item_set_end(subti, tvb, offset);
@@ -9904,6 +9935,16 @@ proto_register_kafka_protocol_fields(int protocol)
                FT_INT8, BASE_DEC, VALS(config_operations), 0,
                NULL, HFILL }
         },
+        { &hf_kafka_config_type,
+            { "Operation", "kafka.config_type",
+               FT_INT8, BASE_DEC, VALS(config_types), 0,
+               NULL, HFILL }
+        },
+        { &hf_kafka_config_documentation,
+            { "Operation", "kafka.config_documentation",
+               FT_STRING, STR_UNICODE, 0, 0,
+               NULL, HFILL }
+        },
         { &hf_kafka_commit_timestamp,
             { "Timestamp", "kafka.commit_timestamp",
                FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0,
@@ -10026,6 +10067,11 @@ proto_register_kafka_protocol_fields(int protocol)
         },
         { &hf_kafka_config_include_synonyms,
             { "Include Synonyms", "kafka.config_include_synonyms",
+                FT_BOOLEAN, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_config_include_documentation,
+            { "Include Documentation", "kafka.config_include_documentation",
                 FT_BOOLEAN, BASE_NONE, 0, 0,
                 NULL, HFILL }
         },
