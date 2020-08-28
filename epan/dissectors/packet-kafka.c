@@ -759,6 +759,7 @@ typedef struct _kafka_query_response_t {
     guint32  response_frame;
     gboolean response_found;
     gboolean flexible_api;
+    gint8    *client_id;
 } kafka_query_response_t;
 
 
@@ -1121,7 +1122,7 @@ static gint8*
 kafka_tvb_get_string(tvbuff_t *tvb, int offset, int length)
 {
     if (length>=0) {
-        return tvb_get_string_enc(wmem_packet_scope(), tvb, offset, length, ENC_UTF_8);;
+        return tvb_get_string_enc(wmem_packet_scope(), tvb, offset, length, ENC_UTF_8);
     } else {
         return "[ Null ]";
     }
@@ -9282,6 +9283,7 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
     guint32                 pdu_correlation_id;
     kafka_query_response_t *matcher;
     gboolean                has_response = 1;
+    int                     client_id_offset, client_id_length;
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "Kafka");
     col_clear(pinfo->cinfo, COL_INFO);
@@ -9309,6 +9311,7 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
         matcher->request_frame  = pinfo->num;
         matcher->response_found = FALSE;
         matcher->flexible_api   = kafka_is_api_version_flexible(matcher->api_key, matcher->api_version);
+        matcher->client_id      = NULL;
 
         col_add_fstr(pinfo->cinfo, COL_INFO, "Kafka %s v%d Request",
                      kafka_api_key_to_str(matcher->api_key),
@@ -9346,7 +9349,10 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
              */
         } else {
             /* even if flexible API is used, clientId is still using gint16 string length prefix */
-            offset = dissect_kafka_string(kafka_tree, hf_kafka_client_id, tvb, pinfo, offset, 0, NULL, NULL);
+            offset = dissect_kafka_string(kafka_tree, hf_kafka_client_id, tvb, pinfo, offset, 0, &client_id_offset, &client_id_length);
+            if (offset >= 0) {
+                matcher->client_id = tvb_get_string_enc(wmem_file_scope(), tvb, client_id_offset, client_id_length, ENC_UTF_8);
+            }
         }
 
         if (matcher->flexible_api) {
@@ -9570,6 +9576,12 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                                 0, 0, matcher->api_version);
         proto_item_set_generated(ti);
         kafka_check_supported_api_version(pinfo, ti, matcher);
+
+        if (matcher->client_id) {
+            ti = proto_tree_add_string(kafka_tree, hf_kafka_client_id, tvb,
+               0, 0, matcher->client_id);
+            proto_item_set_generated(ti);
+        }
 
         if (matcher->api_key == KAFKA_API_VERSIONS) {
             /*
