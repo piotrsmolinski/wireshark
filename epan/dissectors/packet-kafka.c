@@ -276,6 +276,7 @@ static int ett_kafka_quota_value = -1;
 static int ett_kafka_quota_operation = -1;
 
 static expert_field ei_kafka_request_missing = EI_INIT;
+static expert_field ei_kafka_duplicate_correlation_id = EI_INIT;
 static expert_field ei_kafka_unknown_api_key = EI_INIT;
 static expert_field ei_kafka_unsupported_api_version = EI_INIT;
 static expert_field ei_kafka_bad_string_length = EI_INIT;
@@ -757,7 +758,6 @@ typedef struct _kafka_query_response_t {
     guint32  correlation_id;
     guint32  request_frame;
     guint32  response_frame;
-    gboolean response_found;
     gboolean flexible_api;
     gint8    *client_id;
 } kafka_query_response_t;
@@ -9280,7 +9280,6 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
     guint32                 pdu_length;
     guint32                 pdu_correlation_id;
     kafka_query_response_t *matcher;
-    gboolean                has_response = 1;
     int                     client_id_offset, client_id_length;
 
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "Kafka");
@@ -9301,13 +9300,19 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
         /* in the request PDU the correlation id comes after api_key and api_version */
         pdu_correlation_id = tvb_get_ntohl(tvb, offset+4);
 
-        matcher = wmem_new(wmem_file_scope(), kafka_query_response_t);
+
+        matcher = dissect_kafka_lookup_match(pinfo, pdu_correlation_id);
+
+        if (!matcher) {
+            matcher = wmem_new(wmem_file_scope(), kafka_query_response_t);
+            matcher->correlation_id = pdu_correlation_id;
+            matcher->response_frame = 0;
+            matcher->request_frame  = 0;
+            dissect_kafka_insert_match(pinfo, pdu_correlation_id, matcher);
+        }
 
         matcher->api_key        = tvb_get_ntohs(tvb, offset);
         matcher->api_version    = tvb_get_ntohs(tvb, offset+2);
-        matcher->correlation_id = pdu_correlation_id;
-        matcher->request_frame  = pinfo->num;
-        matcher->response_found = FALSE;
         matcher->flexible_api   = kafka_is_api_version_flexible(matcher->api_key, matcher->api_version);
         matcher->client_id      = NULL;
 
@@ -9319,6 +9324,13 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
         proto_item_append_text(root_ti, " (%s v%d Request)",
                                kafka_api_key_to_str(matcher->api_key),
                                matcher->api_version);
+
+        if (!matcher->request_frame) {
+            matcher->request_frame = pinfo->num;
+        } else if (matcher->request_frame != pinfo->num) {
+            col_add_fstr(pinfo->cinfo, COL_INFO, " (Other request frame in %d)", matcher->request_frame);
+            expert_add_info(pinfo, root_ti, &ei_kafka_duplicate_correlation_id);
+        }
 
         /* for the header implementation check RequestHeaderData class */
 
@@ -9339,6 +9351,12 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
         proto_tree_add_item(kafka_tree, hf_kafka_correlation_id, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
 
+        if (matcher->response_frame) {
+            ti = proto_tree_add_uint(kafka_tree, hf_kafka_response_frame, tvb,
+                    0, 0, matcher->response_frame);
+            proto_item_set_generated(ti);
+        }
+
         if (matcher->api_key == KAFKA_CONTROLLED_SHUTDOWN && matcher->api_version == 0) {
             /*
              * Special case for ControlledShutdownRequest.
@@ -9350,6 +9368,8 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             offset = dissect_kafka_string(kafka_tree, hf_kafka_client_id, tvb, pinfo, offset, 0, &client_id_offset, &client_id_length);
             if (offset >= 0) {
                 matcher->client_id = tvb_get_string_enc(wmem_file_scope(), tvb, client_id_offset, client_id_length, ENC_UTF_8);
+            } else {
+                matcher->client_id = NULL;
             }
         }
 
@@ -9366,9 +9386,11 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                  * simply don't queue produce requests here. If it is a produce
                  * request with a non-zero RequiredAcks field it gets queued later.
                  */
+/*
                 if (tvb_get_ntohs(tvb, offset) == KAFKA_ACK_NOT_REQUIRED) {
                     has_response = 0;
                 }
+*/
                 offset = dissect_kafka_produce_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
             case KAFKA_FETCH:
@@ -9520,10 +9542,6 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
         }
 
-        if (!(has_response && dissect_kafka_insert_match(pinfo, pdu_correlation_id, matcher))) {
-            wmem_free(wmem_file_scope(), matcher);
-        }
-
     }
     else {
         /* Response */
@@ -9549,11 +9567,19 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                                kafka_api_key_to_str(matcher->api_key),
                                matcher->api_version);
 
+        if (!matcher->response_frame) {
+            matcher->response_frame = pinfo->num;
+        } else if (matcher->response_frame != pinfo->num) {
+            col_add_fstr(pinfo->cinfo, COL_INFO, " (Other response frame in %d)", matcher->response_frame);
+            expert_add_info(pinfo, root_ti, &ei_kafka_duplicate_correlation_id);
+        }
 
         /* Show request frame */
-        ti = proto_tree_add_uint(kafka_tree, hf_kafka_request_frame, tvb,
-                0, 0, matcher->request_frame);
-        proto_item_set_generated(ti);
+        if (matcher->request_frame) {
+            ti = proto_tree_add_uint(kafka_tree, hf_kafka_request_frame, tvb,
+                    0, 0, matcher->request_frame);
+            proto_item_set_generated(ti);
+        }
 
         /* Show api key (message type) */
         ti = proto_tree_add_int(kafka_tree, hf_kafka_response_api_key, tvb,
@@ -10742,6 +10768,8 @@ proto_register_kafka_expert_module(const int proto) {
     static ei_register_info ei[] = {
             { &ei_kafka_request_missing,
                     { "kafka.request_missing", PI_UNDECODED, PI_WARN, "Request missing", EXPFILL }},
+            { &ei_kafka_duplicate_correlation_id,
+                    { "kafka.duplicate_correlation_id", PI_UNDECODED, PI_WARN, "Duplicate correlation ID", EXPFILL }},
             { &ei_kafka_unknown_api_key,
                     { "kafka.unknown_api_key", PI_UNDECODED, PI_WARN, "Unknown API key", EXPFILL }},
             { &ei_kafka_unsupported_api_version,
