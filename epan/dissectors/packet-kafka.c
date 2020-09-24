@@ -2572,8 +2572,26 @@ dissect_kafka_metadata_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
                                kafka_api_version_t api_version)
 {
 
-    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 9, api_version,
-                                 &dissect_kafka_metadata_request_topic, NULL);
+    proto_item *ti;
+    proto_tree *subtree;
+    int topic_count;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topics, &ti, "Topics");
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 9, api_version,
+                                 &dissect_kafka_metadata_request_topic, &topic_count);
+    proto_item_set_end(ti, tvb, offset);
+
+    if (api_version == 0) {
+        if (topic_count == 0) {
+            proto_item_append_text(ti, " (all topics)");
+        }
+    } else {
+        if (topic_count == -1) {
+            proto_item_append_text(ti, " (all topics)");
+        } else if (topic_count == 0) {
+            proto_item_append_text(ti, " (no topic info)");
+        }
+    }
 
     if (api_version >= 4) {
         proto_tree_add_item(tree, hf_kafka_allow_auto_topic_creation, tvb, offset, 1, ENC_BIG_ENDIAN);
