@@ -8613,9 +8613,11 @@ dissect_kafka_alter_partition_reassignments_request_partition(tvbuff_t *tvb, pac
     offset = dissect_kafka_partition_id_ret(tvb, pinfo, subtree, offset, &partition);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Replicas");
-
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 1, api_version,
                                  &dissect_kafka_alter_partition_reassignments_request_replica, NULL);
+    proto_item_set_end(subsubti, tvb, offset);
+
+    offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8631,12 +8633,14 @@ dissect_kafka_alter_partition_reassignments_request_topic(tvbuff_t *tvb, packet_
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 1, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 1, api_version,
                                  &dissect_kafka_alter_partition_reassignments_request_partition, NULL);
+    proto_item_set_end(subsubti, tvb, offset);
+
+    offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8656,10 +8660,11 @@ dissect_kafka_alter_partition_reassignments_request(tvbuff_t *tvb, packet_info *
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 1, api_version,
                                  &dissect_kafka_alter_partition_reassignments_request_topic, NULL);
-
     proto_item_set_end(subti, tvb, offset);
+
+    offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
 
     return offset;
 }
@@ -8678,7 +8683,9 @@ dissect_kafka_alter_partition_reassignments_response_partition(tvbuff_t *tvb, pa
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, 1, NULL, NULL);
+
+    offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8694,12 +8701,14 @@ dissect_kafka_alter_partition_reassignments_response_topic(tvbuff_t *tvb, packet
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 1, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 1, api_version,
                                  &dissect_kafka_alter_partition_reassignments_response_partition, NULL);
+    proto_item_set_end(subsubti, tvb, offset);
+
+    offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8717,15 +8726,16 @@ dissect_kafka_alter_partition_reassignments_response(tvbuff_t *tvb, packet_info 
 
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
-    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, 1, NULL, NULL);
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 1, api_version,
                                  &dissect_kafka_alter_partition_reassignments_response_topic, NULL);
-
     proto_item_set_end(subti, tvb, offset);
+
+    offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
 
     return offset;
 }
@@ -8751,12 +8761,15 @@ dissect_kafka_list_partition_reassignments_request_topic(tvbuff_t *tvb, packet_i
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 1, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
 
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 1, api_version,
                                  &dissect_kafka_list_partition_reassignments_request_partition, NULL);
+    proto_item_set_end(subsubti, tvb, offset);
+
+    offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8776,10 +8789,11 @@ dissect_kafka_list_partition_reassignments_request(tvbuff_t *tvb, packet_info *p
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 1, api_version,
                                  &dissect_kafka_list_partition_reassignments_request_topic, NULL);
-
     proto_item_set_end(subti, tvb, offset);
+
+    offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
 
     return offset;
 }
@@ -8808,28 +8822,30 @@ dissect_kafka_list_partition_reassignments_response_partition(tvbuff_t *tvb, pac
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, 1, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                         ett_kafka_replicas,
                                         &subsubti, "Current Replicas");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 1, api_version,
                                  &dissect_kafka_list_partition_reassignments_response_replica, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                         ett_kafka_replicas,
                                         &subsubti, "Adding Replicas");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 1, api_version,
                                  &dissect_kafka_list_partition_reassignments_response_replica, NULL);
     proto_item_set_end(subsubti, tvb, offset);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                         ett_kafka_replicas,
                                         &subsubti, "Removing Replicas");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 1, api_version,
                                  &dissect_kafka_list_partition_reassignments_response_replica, NULL);
     proto_item_set_end(subsubti, tvb, offset);
+
+    offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8845,12 +8861,14 @@ dissect_kafka_list_partition_reassignments_response_topic(tvbuff_t *tvb, packet_
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 1, NULL, NULL);
 
     subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 1, api_version,
                                  &dissect_kafka_list_partition_reassignments_response_partition, NULL);
+    proto_item_set_end(subsubti, tvb, offset);
+
+    offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, 0);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8868,15 +8886,16 @@ dissect_kafka_list_partition_reassignments_response(tvbuff_t *tvb, packet_info *
 
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
-    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, 1, NULL, NULL);
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 1, api_version,
                                  &dissect_kafka_list_partition_reassignments_response_topic, NULL);
-
     proto_item_set_end(subti, tvb, offset);
+
+    offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
 
     return offset;
 }
