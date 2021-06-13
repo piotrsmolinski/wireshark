@@ -31,11 +31,16 @@
 #endif
 #include "packet-tcp.h"
 #include "packet-tls.h"
+#include "packet-dcerpc.h"
+#include "packet-gssapi.h"
 
 void proto_register_kafka(void);
 void proto_reg_handoff_kafka(void);
 
 static int proto_kafka = -1;
+
+static dissector_handle_t kafka_handle;
+static dissector_handle_t gssapi_handle;
 
 static int hf_kafka_len = -1;
 static int hf_kafka_api_key = -1;
@@ -304,6 +309,11 @@ typedef struct _kafka_api_info_t {
     /* Added in Kafka 2.4. Protocol messages are upgraded gradually. */
     kafka_api_version_t flexible_since;
 } kafka_api_info_t;
+
+typedef struct kafka_conv_info_t {
+  char *sasl_auth_mech;    /* authentication mechanism, set by KAFKA_SASL_HANDSHAKE */
+  wmem_tree_t *match_map;
+} kafka_conv_info_t;
 
 #define KAFKA_TCP_DEFAULT_RANGE     "9092"
 
@@ -773,6 +783,22 @@ typedef struct kafka_packet_values_t {
 static int
 dissect_kafka_message_set(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset, guint len, guint8 codec);
 
+static kafka_conv_info_t *
+dissect_kafka_get_conv_info(packet_info *pinfo)
+{
+    conversation_t         *conversation;
+    kafka_conv_info_t      *conv_info;
+
+    conversation = find_or_create_conversation(pinfo);
+    conv_info    = (kafka_conv_info_t *) conversation_get_proto_data(conversation, proto_kafka);
+    if (conv_info == NULL) {
+        conv_info = wmem_new(wmem_file_scope(), kafka_conv_info_t);
+        conv_info->sasl_auth_mech = NULL;
+        conv_info->match_map = wmem_tree_new(wmem_file_scope());
+        conversation_add_proto_data(conversation, proto_kafka, conv_info);
+    }
+    return conv_info;
+}
 
 /* HELPERS */
 
@@ -5449,8 +5475,15 @@ static int
 dissect_kafka_sasl_handshake_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                      kafka_api_version_t api_version _U_)
 {
+
+    int auth_mechanism_start, auth_mechanism_length;
+
     /* mechanism */
-    offset = dissect_kafka_string(tree, hf_kafka_sasl_mechanism, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_sasl_mechanism, tvb, pinfo, offset, 0, &auth_mechanism_start, &auth_mechanism_length);
+
+    if (auth_mechanism_length >= 0) {
+        dissect_kafka_get_conv_info(pinfo)->sasl_auth_mech = tvb_get_string_enc(wmem_file_scope(), tvb, auth_mechanism_start, auth_mechanism_length, ENC_UTF_8);
+    }
 
     return offset;
 }
@@ -7922,7 +7955,23 @@ static int
 dissect_kafka_sasl_authenticate_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                          kafka_api_version_t api_version)
 {
-    offset = dissect_kafka_bytes(tree, hf_kafka_sasl_auth_bytes, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
+
+    kafka_conv_info_t *kafka_conv_info;
+    int token_start, token_length;
+    tvbuff_t *token_tvb;
+
+    kafka_conv_info = dissect_kafka_get_conv_info(pinfo);
+
+    offset = dissect_kafka_bytes(tree, hf_kafka_sasl_auth_bytes, tvb, pinfo, offset, api_version >= 2, &token_start, &token_length);
+
+    if (token_length > 0) {
+        if (kafka_conv_info->sasl_auth_mech && strcmp(kafka_conv_info->sasl_auth_mech, "GSSAPI") == 0) {
+            token_tvb = tvb_new_subset_length(tvb, token_start, token_length);
+            if (token_tvb) {
+                call_dissector(gssapi_handle, token_tvb, pinfo, tree);
+            }
+        }
+    }
 
     if (api_version >= 2) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, 0);
@@ -7936,11 +7985,27 @@ static int
 dissect_kafka_sasl_authenticate_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                           kafka_api_version_t api_version _U_)
 {
+
+    kafka_conv_info_t *kafka_conv_info;
+    int token_start, token_length;
+    tvbuff_t *token_tvb;
+
+    kafka_conv_info = dissect_kafka_get_conv_info(pinfo);
+
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
 
     offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
 
-    offset = dissect_kafka_bytes(tree, hf_kafka_sasl_auth_bytes, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
+    offset = dissect_kafka_bytes(tree, hf_kafka_sasl_auth_bytes, tvb, pinfo, offset, api_version >= 2, &token_start, &token_length);
+
+    if (token_length > 0) {
+        if (kafka_conv_info->sasl_auth_mech && strcmp(kafka_conv_info->sasl_auth_mech, "GSSAPI") == 0) {
+            token_tvb = tvb_new_subset_length(tvb, token_start, token_length);
+            if (token_tvb) {
+                call_dissector(gssapi_handle, token_tvb, pinfo, tree);
+            }
+        }
+    }
 
     if (api_version >= 1) {
         offset = dissect_kafka_int64(tree, hf_kafka_session_lifetime_ms, tvb, pinfo, offset, NULL);
@@ -9278,26 +9343,13 @@ dissect_kafka_alter_client_quotas_response(tvbuff_t *tvb, packet_info *pinfo, pr
 static wmem_tree_t *
 dissect_kafka_get_match_map(packet_info *pinfo)
 {
-    conversation_t         *conversation;
-    wmem_tree_t            *match_map;
-    conversation = find_or_create_conversation(pinfo);
-    match_map    = (wmem_tree_t *) conversation_get_proto_data(conversation, proto_kafka);
-    if (match_map == NULL) {
-        match_map = wmem_tree_new(wmem_file_scope());
-        conversation_add_proto_data(conversation, proto_kafka, match_map);
-
-    }
-    return match_map;
+    return dissect_kafka_get_conv_info(pinfo)->match_map;
 }
 
-static gboolean
+static void
 dissect_kafka_insert_match(packet_info *pinfo, guint32 correlation_id, kafka_query_response_t *match)
 {
-    if (wmem_tree_lookup32(dissect_kafka_get_match_map(pinfo), correlation_id)) {
-        return 0;
-    }
     wmem_tree_insert32(dissect_kafka_get_match_map(pinfo), correlation_id, match);
-    return 1;
 }
 
 static kafka_query_response_t *
@@ -9337,21 +9389,20 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
         /* in the request PDU the correlation id comes after api_key and api_version */
         pdu_correlation_id = tvb_get_ntohl(tvb, offset+4);
 
-
-        matcher = dissect_kafka_lookup_match(pinfo, pdu_correlation_id);
+        matcher = (kafka_query_response_t*)p_get_proto_data(wmem_file_scope(), pinfo, proto_kafka, 0);
 
         if (!matcher) {
             matcher = wmem_new(wmem_file_scope(), kafka_query_response_t);
             matcher->correlation_id = pdu_correlation_id;
             matcher->response_frame = 0;
-            matcher->request_frame  = 0;
+            matcher->request_frame  = pinfo->num;
+            matcher->api_key        = tvb_get_ntohs(tvb, offset);
+            matcher->api_version    = tvb_get_ntohs(tvb, offset+2);
+            matcher->flexible_api   = kafka_is_api_version_flexible(matcher->api_key, matcher->api_version);
+            matcher->client_id      = NULL;
             dissect_kafka_insert_match(pinfo, pdu_correlation_id, matcher);
+            p_add_proto_data(wmem_file_scope(), pinfo, proto_kafka, 0, matcher);
         }
-
-        matcher->api_key        = tvb_get_ntohs(tvb, offset);
-        matcher->api_version    = tvb_get_ntohs(tvb, offset+2);
-        matcher->flexible_api   = kafka_is_api_version_flexible(matcher->api_key, matcher->api_version);
-        matcher->client_id      = NULL;
 
         col_add_fstr(pinfo->cinfo, COL_INFO, "Kafka %s v%d Request",
                      kafka_api_key_to_str(matcher->api_key),
@@ -9403,10 +9454,8 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
         } else {
             /* even if flexible API is used, clientId is still using gint16 string length prefix */
             offset = dissect_kafka_string(kafka_tree, hf_kafka_client_id, tvb, pinfo, offset, 0, &client_id_offset, &client_id_length);
-            if (offset >= 0) {
+            if (! matcher->client_id && offset >= 0 && client_id_length >= 0) {
                 matcher->client_id = tvb_get_string_enc(wmem_file_scope(), tvb, client_id_offset, client_id_length, ENC_UTF_8);
-            } else {
-                matcher->client_id = NULL;
             }
         }
 
@@ -9588,12 +9637,22 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
         proto_tree_add_item(kafka_tree, hf_kafka_correlation_id, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
 
-        matcher = dissect_kafka_lookup_match(pinfo, pdu_correlation_id);
+        matcher = (kafka_query_response_t*)p_get_proto_data(wmem_file_scope(), pinfo, proto_kafka, 0);
 
-        if (matcher == NULL) {
-            col_set_str(pinfo->cinfo, COL_INFO, "Kafka Response (Undecoded, Request Missing)");
-            expert_add_info(pinfo, root_ti, &ei_kafka_request_missing);
-            return tvb_captured_length(tvb);
+        if (!matcher) {
+            matcher = dissect_kafka_lookup_match(pinfo, pdu_correlation_id);
+            if (matcher == NULL) {
+                col_set_str(pinfo->cinfo, COL_INFO, "Kafka Response (Undecoded, Request Missing)");
+                expert_add_info(pinfo, root_ti, &ei_kafka_request_missing);
+                return tvb_captured_length(tvb);
+            }
+            if (!matcher->response_frame) {
+                matcher->response_frame = pinfo->num;
+            } else if (matcher->response_frame != pinfo->num) {
+                col_add_fstr(pinfo->cinfo, COL_INFO, " (Other response frame in %d)", matcher->response_frame);
+                expert_add_info(pinfo, root_ti, &ei_kafka_duplicate_correlation_id);
+            }
+            p_add_proto_data(wmem_file_scope(), pinfo, proto_kafka, 0, matcher);
         }
 
         col_add_fstr(pinfo->cinfo, COL_INFO, "Kafka %s v%d Response",
@@ -9603,13 +9662,6 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
         proto_item_append_text(root_ti, " (%s v%d Response)",
                                kafka_api_key_to_str(matcher->api_key),
                                matcher->api_version);
-
-        if (!matcher->response_frame) {
-            matcher->response_frame = pinfo->num;
-        } else if (matcher->response_frame != pinfo->num) {
-            col_add_fstr(pinfo->cinfo, COL_INFO, " (Other response frame in %d)", matcher->response_frame);
-            expert_add_info(pinfo, root_ti, &ei_kafka_duplicate_correlation_id);
-        }
 
         /* Show request frame */
         if (matcher->request_frame) {
@@ -9841,6 +9893,14 @@ get_kafka_pdu_len(packet_info *pinfo _U_, tvbuff_t *tvb, int offset, void *data 
 static int
 dissect_kafka_tcp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data)
 {
+    conversation_t *conversation;
+    kafka_conv_info_t *kafka_conv_info = NULL;
+
+    conversation = find_conversation_pinfo(pinfo, 0);
+    if (conversation) {
+        kafka_conv_info = (kafka_conv_info_t *)conversation_get_proto_data(conversation, proto_kafka);
+    }
+
     tcp_dissect_pdus(tvb, pinfo, tree, TRUE, 4,
             get_kafka_pdu_len, dissect_kafka, data);
     return tvb_captured_length(tvb);
@@ -10873,9 +10933,8 @@ void
 proto_reg_handoff_kafka(void)
 {
 
-    static dissector_handle_t kafka_handle;
-
     kafka_handle = register_dissector("kafka", dissect_kafka_tcp, proto_kafka);
+    gssapi_handle = find_dissector_add_dependency("gssapi", proto_kafka);
 
     dissector_add_uint_range_with_preference("tcp.port", KAFKA_TCP_DEFAULT_RANGE, kafka_handle);
     ssl_dissector_add(0, kafka_handle);
