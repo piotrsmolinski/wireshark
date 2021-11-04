@@ -781,7 +781,8 @@ typedef struct kafka_packet_values_t {
 
 /* Forward declaration (dissect_kafka_message_set() and dissect_kafka_message() call each other...) */
 static int
-dissect_kafka_message_set(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset, guint len, guint8 codec);
+dissect_kafka_message_set(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset, guint len, guint8 codec,
+                          guint *p_messages);
 
 static kafka_conv_info_t *
 dissect_kafka_get_conv_info(packet_info *pinfo)
@@ -2046,7 +2047,7 @@ dissect_kafka_message_old(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, i
             add_new_data_source(pinfo, decompressed_tvb, "Decompressed content");
             show_compression_reduction(tvb, subtree, length, tvb_captured_length(decompressed_tvb));
             dissect_kafka_message_set(decompressed_tvb, pinfo, subtree, decompressed_offset,
-                tvb_reported_length_remaining(decompressed_tvb, decompressed_offset), codec);
+                tvb_reported_length_remaining(decompressed_tvb, decompressed_offset), codec, NULL);
             offset += length;
         } else {
             proto_item_append_text(subtree, " [Cannot decompress records]");
@@ -2177,7 +2178,8 @@ dissect_kafka_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int o
 }
 
 static int
-dissect_kafka_message_set(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset, guint len, guint8 codec)
+dissect_kafka_message_set(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, gint offset, guint len, guint8 codec,
+                          guint *p_messages)
 {
     proto_item *ti;
     proto_tree *subtree;
@@ -2191,6 +2193,10 @@ dissect_kafka_message_set(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
 
     while (offset < end_offset) {
         offset = dissect_kafka_message(tvb, pinfo, subtree, offset, end_offset);
+    }
+
+    if (p_messages) {
+        *p_messages = messages;
     }
 
     if (offset != end_offset) {
@@ -3587,7 +3593,7 @@ dissect_kafka_fetch_response_partition(tvbuff_t *tvb, packet_info *pinfo, proto_
     offset += 4;
 
     if (len > 0) {
-        offset = dissect_kafka_message_set(tvb, pinfo, subtree, offset, len, KAFKA_MESSAGE_CODEC_NONE);
+        offset = dissect_kafka_message_set(tvb, pinfo, subtree, offset, len, KAFKA_MESSAGE_CODEC_NONE, NULL);
     }
 
     proto_item_set_end(ti, tvb, offset);
@@ -3656,7 +3662,7 @@ dissect_kafka_produce_request_partition(tvbuff_t *tvb, packet_info *pinfo, proto
     offset += 4;
 
     if (len > 0) {
-        offset = dissect_kafka_message_set(tvb, pinfo, subtree, offset, len, KAFKA_MESSAGE_CODEC_NONE);
+        offset = dissect_kafka_message_set(tvb, pinfo, subtree, offset, len, KAFKA_MESSAGE_CODEC_NONE, NULL);
     }
 
     proto_item_append_text(ti, " (ID=%u)", packet_values.partition_id);
