@@ -403,7 +403,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_STOP_REPLICA,                  "StopReplica",
       0, 3, 2 },
     { KAFKA_UPDATE_METADATA,               "UpdateMetadata",
-      0, 6, 6 },
+      0, 7, 6 },
     { KAFKA_CONTROLLED_SHUTDOWN,           "ControlledShutdown",
       0, 3, 3 },
     { KAFKA_OFFSET_COMMIT,                 "OffsetCommit",
@@ -4329,6 +4329,7 @@ dissect_kafka_update_metadata_request_topic(tvbuff_t *tvb, packet_info *pinfo, p
     proto_tree *subtree;
     proto_item *subti;
     int topic_start, topic_len;
+    gint8 *topic_id;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topic,
@@ -4336,6 +4337,12 @@ dissect_kafka_update_metadata_request_topic(tvbuff_t *tvb, packet_info *pinfo, p
     /* topic */
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 6,
                                   &topic_start, &topic_len);
+
+    if (api_version >= 7) {
+        topic_id = kafka_tvb_get_uuid_as_base64(wmem_packet_scope(), tvb, offset);
+        proto_tree_add_string_format(subtree, hf_kafka_topic_id, tvb, offset, 16, topic_id, "Topic ID: %s", topic_id);
+        offset += 16;
+    }
 
     /* partitions */
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 6, api_version,
