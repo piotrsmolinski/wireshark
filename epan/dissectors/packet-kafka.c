@@ -149,6 +149,7 @@ static int hf_kafka_zk_version = -1;
 static int hf_kafka_is_new_replica = -1;
 static int hf_kafka_config_key = -1;
 static int hf_kafka_config_value = -1;
+static int hf_kafka_config_error_code = -1;
 static int hf_kafka_commit_timestamp = -1;
 static int hf_kafka_retention_time = -1;
 static int hf_kafka_forgotten_topic_name = -1;
@@ -5793,6 +5794,18 @@ dissect_kafka_create_topics_response_topic_config(tvbuff_t *tvb, packet_info *pi
 }
 
 static int
+dissect_kafka_create_topics_response_topic_tagged_fields(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                  kafka_api_version_t api_version _U_, guint64 tag)
+{
+    if (tag == 0) {
+        offset = dissect_kafka_int16(tree, hf_kafka_config_error_code, tvb, pinfo, offset, NULL);
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+static int
 dissect_kafka_create_topics_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                                       int offset, kafka_api_version_t api_version)
 {
@@ -5833,7 +5846,7 @@ dissect_kafka_create_topics_response_topic(tvbuff_t *tvb, packet_info *pinfo, pr
     }
 
     if (api_version >= 5) {
-        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, &dissect_kafka_create_topics_response_topic_tagged_fields);
     }
 
     proto_item_set_end(subti, tvb, offset);
@@ -10557,6 +10570,11 @@ proto_register_kafka_protocol_fields(int protocol)
             { "Value", "kafka.config_value",
                FT_STRING, STR_ASCII, 0, 0,
                NULL, HFILL }
+        },
+        { &hf_kafka_config_error_code,
+            { "Error", "kafka.config_error_code",
+                FT_INT16, BASE_DEC, 0, 0,
+                "Optional topic config error returned if configs are not returned in the response.", HFILL }
         },
         { &hf_kafka_config_operation,
             { "Operation", "kafka.config_operation",
