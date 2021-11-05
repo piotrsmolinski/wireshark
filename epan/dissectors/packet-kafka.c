@@ -444,7 +444,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_ADD_OFFSETS_TO_TXN,            "AddOffsetsToTxn",
       0, 1, -1 },
     { KAFKA_END_TXN,                       "EndTxn",
-      0, 1, -1 },
+      0, 3, 3 },
     { KAFKA_WRITE_TXN_MARKERS,             "WriteTxnMarkers",
       0, 0, -1 },
     { KAFKA_TXN_OFFSET_COMMIT,             "TxnOffsetCommit",
@@ -6717,9 +6717,9 @@ dissect_kafka_add_offsets_to_txn_response(tvbuff_t *tvb, packet_info *pinfo, pro
 
 static int
 dissect_kafka_end_txn_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                                            kafka_api_version_t api_version _U_)
+                                            kafka_api_version_t api_version)
 {
-    offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, pinfo, offset, api_version>=3, NULL, NULL);
 
     proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
     offset += 8;
@@ -6730,17 +6730,25 @@ dissect_kafka_end_txn_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tre
     proto_tree_add_item(tree, hf_kafka_transaction_result, tvb, offset, 1, ENC_BIG_ENDIAN);
     offset += 1;
 
+    if (api_version >= 3) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
+
     return offset;
 }
 
 
 static int
 dissect_kafka_end_txn_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
-                                             kafka_api_version_t api_version _U_)
+                                             kafka_api_version_t api_version)
 {
     offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
 
     offset = dissect_kafka_error(tvb, pinfo, tree, offset);
+
+    if (api_version >= 3) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
 
     return offset;
 }
