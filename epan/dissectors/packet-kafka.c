@@ -431,7 +431,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_CREATE_TOPICS,                 "CreateTopics",
       0, 6, 5 },
     { KAFKA_DELETE_TOPICS,                 "DeleteTopics",
-      0, 5, 4 },
+      0, 6, 4 },
     { KAFKA_DELETE_RECORDS,                "DeleteRecords",
       0, 2, 2 },
     { KAFKA_INIT_PRODUCER_ID,              "InitProducerId",
@@ -1283,6 +1283,13 @@ dissect_kafka_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *
     } else {
         return dissect_kafka_regular_string(tree, hf_item, tvb, pinfo, offset, p_offset, p_length);
     }
+}
+
+static int
+dissect_kafka_uuid(proto_tree *tree, int hf_item, tvbuff_t *tvb, packet_info *pinfo, int offset) {
+    proto_tree_add_string(tree, hf_item, tvb, offset, 16,
+                          kafka_tvb_get_uuid_as_base64(pinfo->pool, tvb, offset));
+    return offset + 16;
 }
 
 /*
@@ -2608,14 +2615,11 @@ dissect_kafka_metadata_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 {
     proto_item *ti;
     proto_tree *subtree;
-    gint8 *topic_id;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
     if (api_version >= 10) {
-        topic_id = kafka_tvb_get_uuid_as_base64(wmem_packet_scope(), tvb, offset);
-        proto_tree_add_string_format(subtree, hf_kafka_topic_id, tvb, offset, 16, topic_id, "Topic ID: %s", topic_id);
-        offset += 16;
+        offset = dissect_kafka_uuid(subtree, hf_kafka_topic_id, tvb, pinfo, offset);
     }
 
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 9, NULL, NULL);
@@ -2795,7 +2799,6 @@ dissect_kafka_metadata_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     proto_item *ti;
     proto_tree *subtree;
     int         name_start, name_length;
-    gint8      *topic_id;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
@@ -2811,9 +2814,7 @@ dissect_kafka_metadata_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     }
 
     if (api_version >= 10) {
-        topic_id = kafka_tvb_get_uuid_as_base64(wmem_packet_scope(), tvb, offset);
-        proto_tree_add_string_format(subtree, hf_kafka_topic_id, tvb, offset, 16, topic_id, "Topic ID: %s", topic_id);
-        offset += 16;
+        offset = dissect_kafka_uuid(subtree, hf_kafka_topic_id, tvb, pinfo, offset);
     }
 
     if (api_version >= 1) {
@@ -4329,7 +4330,6 @@ dissect_kafka_update_metadata_request_topic(tvbuff_t *tvb, packet_info *pinfo, p
     proto_tree *subtree;
     proto_item *subti;
     int topic_start, topic_len;
-    gint8 *topic_id;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topic,
@@ -4339,9 +4339,7 @@ dissect_kafka_update_metadata_request_topic(tvbuff_t *tvb, packet_info *pinfo, p
                                   &topic_start, &topic_len);
 
     if (api_version >= 7) {
-        topic_id = kafka_tvb_get_uuid_as_base64(wmem_packet_scope(), tvb, offset);
-        proto_tree_add_string_format(subtree, hf_kafka_topic_id, tvb, offset, 16, topic_id, "Topic ID: %s", topic_id);
-        offset += 16;
+        offset = dissect_kafka_uuid(subtree, hf_kafka_topic_id, tvb, pinfo, offset);
     }
 
     /* partitions */
@@ -5999,11 +5997,33 @@ dissect_kafka_create_topics_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 /* DELETE_TOPICS REQUEST/RESPONSE */
 
 static int
-dissect_kafka_delete_topics_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+dissect_kafka_delete_topics_request_topic_name(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                           int offset, kafka_api_version_t api_version)
 {
     /* topic */
     offset = dissect_kafka_string(tree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 4, NULL, NULL);
+    return offset;
+}
+
+static int
+dissect_kafka_delete_topics_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                               int offset, kafka_api_version_t api_version)
+{
+    proto_item *subti;
+    proto_tree *subtree;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_topic,
+                                     &subti, "Topic");
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
+
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 4, NULL, NULL);
+
+    offset = dissect_kafka_uuid(subtree, hf_kafka_topic_id, tvb, pinfo, offset);
+
+    proto_item_set_end(subti, tvb, offset);
+
     return offset;
 }
 
@@ -6018,8 +6038,13 @@ dissect_kafka_delete_topics_request(tvbuff_t *tvb, packet_info *pinfo, proto_tre
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 4, api_version,
-                                 &dissect_kafka_delete_topics_request_topic, NULL);
+    if (api_version <= 5) {
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                     &dissect_kafka_delete_topics_request_topic_name, NULL);
+    } else {
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 4, api_version,
+                                     &dissect_kafka_delete_topics_request_topic, NULL);
+    }
     proto_item_set_end(subti, tvb, offset);
 
     /* timeout */
@@ -6048,6 +6073,9 @@ dissect_kafka_delete_topics_response_topic_error_code(tvbuff_t *tvb, packet_info
 
     /* topic */
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 4, &topic_start, &topic_len);
+
+    /* topic_id */
+    offset = dissect_kafka_uuid(subtree, hf_kafka_topic_id, tvb, pinfo, offset);
 
     /* error_code */
     offset = dissect_kafka_error_ret(tvb, pinfo, subtree, offset, &error);
