@@ -429,7 +429,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_API_VERSIONS,                  "ApiVersions",
       0, 3, 3 },
     { KAFKA_CREATE_TOPICS,                 "CreateTopics",
-      0, 6, 5 },
+      0, 7, 5 },
     { KAFKA_DELETE_TOPICS,                 "DeleteTopics",
       0, 6, 4 },
     { KAFKA_DELETE_RECORDS,                "DeleteRecords",
@@ -5931,6 +5931,11 @@ dissect_kafka_create_topics_response_topic(tvbuff_t *tvb, packet_info *pinfo, pr
 
     /* topic */
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 5, &topic_start, &topic_len);
+
+    if (api_version >= 7) {
+        /* topic_id */
+        offset = dissect_kafka_uuid(subtree, hf_kafka_topic_id, tvb, pinfo, offset);
+    }
 
     /* error_code */
     offset = dissect_kafka_error_ret(tvb, pinfo, subtree, offset, &error);
