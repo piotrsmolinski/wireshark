@@ -590,6 +590,23 @@ static const value_string kafka_errors[] = {
     { 87, "This record has failed the validation on broker and hence will be rejected" },
     { 88, "There are unstable offsets that need to be cleared" },
     { 89, "The throttling quota has been exceeded" },
+    { 90, "There is a newer producer with the same transactionalId which fences the current one" },
+    { 91, "A request illegally referred to a resource that does not exist" },
+    { 92, "A request illegally referred to the same resource twice" },
+    { 93, "Requested credential would not meet criteria for acceptability" },
+    { 94, "Indicates that the either the sender or recipient of a voter-only request is not one of the expected voters" },
+    { 95, "The given update version was invalid" },
+    { 96, "Unable to update finalized features due to an unexpected server error" },
+    { 97, "Request principal deserialization failed during forwarding. This indicates an internal error on the brok`er cluster security setup" },
+    { 98, "Requested snapshot was not found" },
+    { 99, "Requested position is not greater than or equal to zero, and less than the size of the snapshot" },
+    { 100, "This server does not host this topic ID" },
+    { 101, "This broker ID is already in use" },
+    { 102, "The given broker ID was not registered" },
+    { 103, "The log's topic ID did not match the topic ID in the request" },
+    { 104, "The clusterId in the request does not match that found on the server" },
+    { 105, "The transactionalId could not be found" },
+    { 106, "The fetch session encountered inconsistent topic ID usage" },
     { 0, NULL }
 };
 
