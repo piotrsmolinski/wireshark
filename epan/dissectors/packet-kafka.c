@@ -2174,6 +2174,7 @@ dissect_kafka_message_set(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
 {
     proto_item *ti;
     proto_tree *subtree;
+    guint       messages = 0;
     gint        end_offset = offset + len;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_message_set, &ti, "Message Set");
@@ -2184,6 +2185,7 @@ dissect_kafka_message_set(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, g
 
     while (offset < end_offset) {
         offset = dissect_kafka_message(tvb, pinfo, subtree, offset, end_offset);
+        messages += 1;
     }
 
     if (p_messages) {
