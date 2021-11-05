@@ -436,7 +436,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_DELETE_RECORDS,                "DeleteRecords",
       0, 2, 2 },
     { KAFKA_INIT_PRODUCER_ID,              "InitProducerId",
-      0, 3, 2 },
+      0, 4, 2 },
     { KAFKA_OFFSET_FOR_LEADER_EPOCH,       "OffsetForLeaderEpoch",
       0, 3, -1 },
     { KAFKA_ADD_PARTITIONS_TO_TXN,         "AddPartitionsToTxn",
