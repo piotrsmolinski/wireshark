@@ -55,6 +55,7 @@ static int hf_kafka_client_host = -1;
 static int hf_kafka_required_acks = -1;
 static int hf_kafka_timeout = -1;
 static int hf_kafka_topic_name = -1;
+static int hf_kafka_topic_id = -1;
 static int hf_kafka_transactional_id = -1;
 static int hf_kafka_transaction_result = -1;
 static int hf_kafka_transaction_timeout = -1;
@@ -396,7 +397,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_OFFSETS,                       "Offsets",
       0, 5, -1 },
     { KAFKA_METADATA,                      "Metadata",
-      0, 9, 9 },
+      0, 12, 9 },
     { KAFKA_LEADER_AND_ISR,                "LeaderAndIsr",
       0, 4, 4 },
     { KAFKA_STOP_REPLICA,                  "StopReplica",
@@ -1156,6 +1157,36 @@ kafka_tvb_get_string(wmem_allocator_t *pool, tvbuff_t *tvb, int offset, int leng
     } else {
         return "[ Null ]";
     }
+}
+
+static const unsigned char base64_table[65] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+/*
+ * Kafka topic id is in fact UUID, but the tools report it as base64 without padding.
+ */
+static gint8*
+kafka_tvb_get_uuid_as_base64(wmem_allocator_t *pool, tvbuff_t *tvb, int offset)
+{
+    gint8 *result;
+    int i, j;
+
+    // to avoid boundary checking, allocate the padding and use it later as string termination
+    result = wmem_alloc(pool, 24);
+    for (i = 0, j = 0; i < 16; ) {
+        guint32 a = i < 16 ? tvb_get_gint8(tvb, offset + i++) : 0;
+        guint32 b = i < 16 ? tvb_get_gint8(tvb, offset + i++) : 0;
+        guint32 c = i < 16 ? tvb_get_gint8(tvb, offset + i++) : 0;
+        guint32 triple = (a << 16) + (b << 8) + c;
+        result[j++] = base64_table[(triple >> 3 * 6) & 0x3f];
+        result[j++] = base64_table[(triple >> 2 * 6) & 0x3f];
+        result[j++] = base64_table[(triple >> 1 * 6) & 0x3f];
+        result[j++] = base64_table[(triple >> 0 * 6) & 0x3f];
+    }
+    result[22] = 0;
+    result[23] = 0;
+
+    return result;
+
 }
 
 /*
@@ -2577,8 +2608,15 @@ dissect_kafka_metadata_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 {
     proto_item *ti;
     proto_tree *subtree;
+    gint8 *topic_id;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
+
+    if (api_version >= 10) {
+        topic_id = kafka_tvb_get_uuid_as_base64(wmem_packet_scope(), tvb, offset);
+        proto_tree_add_string_format(subtree, hf_kafka_topic_id, tvb, offset, 16, topic_id, "Topic ID: %s", topic_id);
+        offset += 16;
+    }
 
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 9, NULL, NULL);
 
@@ -2623,10 +2661,12 @@ dissect_kafka_metadata_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tr
         offset += 1;
     }
 
-    if (api_version >= 8) {
+    if (api_version >= 8 && api_version <= 10) {
         proto_tree_add_item(tree, hf_kafka_include_cluster_authorized_ops, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
+    }
 
+    if (api_version >= 8) {
         proto_tree_add_item(tree, hf_kafka_include_topic_authorized_ops, tvb, offset, 1, ENC_BIG_ENDIAN);
         offset += 1;
     }
@@ -2755,6 +2795,7 @@ dissect_kafka_metadata_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
     proto_item *ti;
     proto_tree *subtree;
     int         name_start, name_length;
+    gint8      *topic_id;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
@@ -2762,9 +2803,18 @@ dissect_kafka_metadata_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 9, &name_start, &name_length);
 
-    proto_item_append_text(ti, " (%s)",
-                           tvb_get_string_enc(pinfo->pool, tvb,
-                           name_start, name_length, ENC_UTF_8));
+    // since api_version 12 topic_name is nullable
+    if (name_length > 0) {
+        proto_item_append_text(ti, " (%s)",
+                               tvb_get_string_enc(pinfo->pool, tvb,
+                                                  name_start, name_length, ENC_UTF_8));
+    }
+
+    if (api_version >= 10) {
+        topic_id = kafka_tvb_get_uuid_as_base64(wmem_packet_scope(), tvb, offset);
+        proto_tree_add_string_format(subtree, hf_kafka_topic_id, tvb, offset, 16, topic_id, "Topic ID: %s", topic_id);
+        offset += 16;
+    }
 
     if (api_version >= 1) {
         proto_tree_add_item(subtree, hf_kafka_is_internal, tvb, offset, 1, ENC_NA);
@@ -2814,7 +2864,7 @@ dissect_kafka_metadata_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *t
     offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 9, api_version, &dissect_kafka_metadata_topic, NULL);
     proto_item_set_end(ti, tvb, offset);
 
-    if (api_version >= 8) {
+    if (api_version >= 8 && api_version <= 10) {
         offset = dissect_kafka_int32(tree, hf_kafka_cluster_authorized_ops, tvb, pinfo, offset, NULL);
     }
 
@@ -10205,6 +10255,12 @@ proto_register_kafka_protocol_fields(int protocol)
             { "Topic Name", "kafka.topic_name",
                FT_STRING, STR_UNICODE, 0, 0,
                NULL, HFILL }
+        },
+        // topic_id is in fact UUID, but tools refer to it formatted using base64 with no padding
+        { &hf_kafka_topic_id,
+            { "Topic ID", "kafka.topic_id",
+                FT_STRING, STR_UNICODE, 0, 0,
+                NULL, HFILL }
         },
         { &hf_kafka_producer_id,
             { "Producer ID", "kafka.producer_id",
