@@ -323,11 +323,6 @@ typedef struct kafka_conv_info_t {
   wmem_tree_t *match_map;
 } kafka_conv_info_t;
 
-typedef struct _kafka_tagged_field_t {
-    guint64 tag;
-    tvbuff_t *tvb;
-} kafka_tagged_field_t;
-
 #define KAFKA_TCP_DEFAULT_RANGE     "9092"
 
 #define KAFKA_PRODUCE                        0
