@@ -410,7 +410,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_OFFSET_COMMIT,                 "OffsetCommit",
       0, 8, 8 },
     { KAFKA_OFFSET_FETCH,                  "OffsetFetch",
-      0, 7, 6 },
+      0, 8, 6 },
     { KAFKA_FIND_COORDINATOR,              "FindCoordinator",
       0, 4, 3 },
     { KAFKA_JOIN_GROUP,                    "JoinGroup",
@@ -2433,23 +2433,27 @@ dissect_kafka_offset_fetch_request_topic(tvbuff_t *tvb, packet_info *pinfo, prot
 }
 
 static int
-dissect_kafka_offset_fetch_request_topics(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+dissect_kafka_offset_fetch_request_group(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                          kafka_api_version_t api_version)
 {
     proto_item *ti;
     proto_tree *subtree;
     gint32     count = 0;
+    int group_start, group_len;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topics, &ti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 6, api_version,
-                                 &dissect_kafka_offset_fetch_request_topic, &count);
-    proto_item_set_end(ti, tvb, offset);
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &ti, "Topic");
 
-    if (count < 0) {
-        proto_item_append_text(ti, " (all committed topics)");
-    } else {
-        proto_item_append_text(ti, " (%u topics)", count);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 6, &group_start, &group_len);
+
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 6, api_version, &dissect_kafka_partition_id, &count);
+
+    if (api_version >= 6) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
     }
+
+    proto_item_set_end(ti, tvb, offset);
+    proto_item_append_text(ti, " (Group: %s)",
+                           tvb_get_string_enc(pinfo->pool, tvb, group_start, group_len, ENC_UTF_8));
 
     return offset;
 }
@@ -2459,9 +2463,33 @@ dissect_kafka_offset_fetch_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree
                                    kafka_api_version_t api_version)
 {
 
-    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, api_version >=6, NULL, NULL);
+    proto_item *ti;
+    proto_tree *subtree;
+    gint32     count = 0;
 
-    offset = dissect_kafka_offset_fetch_request_topics(tvb, pinfo, tree, offset, api_version);
+    if (api_version <= 7) {
+
+        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, pinfo, offset, api_version >= 6, NULL, NULL);
+
+        subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topics, &ti, "Topics");
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 6, api_version,
+                                     &dissect_kafka_offset_fetch_request_topic, &count);
+        proto_item_set_end(ti, tvb, offset);
+
+        if (count < 0) {
+            proto_item_append_text(ti, " (all committed topics)");
+        } else {
+            proto_item_append_text(ti, " (%u topics)", count);
+        }
+
+    } else {
+
+        subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_groups, &ti, "Groups");
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 6, api_version,
+                                     &dissect_kafka_offset_fetch_request_group, NULL);
+        proto_item_set_end(ti, tvb, offset);
+
+    }
 
     if (api_version >= 7) {
         proto_tree_add_item(tree, hf_kafka_require_stable_offset, tvb, offset, 1, ENC_NA);
