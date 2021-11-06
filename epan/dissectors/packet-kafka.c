@@ -446,7 +446,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_END_TXN,                       "EndTxn",
       0, 3, 3 },
     { KAFKA_WRITE_TXN_MARKERS,             "WriteTxnMarkers",
-      0, 0, -1 },
+      0, 1, 1 },
     { KAFKA_TXN_OFFSET_COMMIT,             "TxnOffsetCommit",
       0, 3, 3 },
     { KAFKA_DESCRIBE_ACLS,                 "DescribeAcls",
@@ -6826,12 +6826,16 @@ dissect_kafka_write_txn_markers_request_topic(tvbuff_t *tvb, packet_info *pinfo,
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 1, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 1, api_version,
                                  &dissect_kafka_write_txn_markers_request_partition, NULL);
     proto_item_set_end(subsubti, tvb, offset);
+
+    if (api_version >= 1) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s)",
@@ -6866,13 +6870,18 @@ dissect_kafka_write_txn_markers_request_marker(tvbuff_t *tvb, packet_info *pinfo
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
                                      ett_kafka_topics,
                                      &subsubti, "Topics");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 1, api_version,
                                  &dissect_kafka_write_txn_markers_request_topic, NULL);
 
     proto_tree_add_item(subsubtree, hf_kafka_coordinator_epoch, tvb, offset, 4, ENC_BIG_ENDIAN);
     offset += 4;
 
     proto_item_set_end(subsubti, tvb, offset);
+
+    if (api_version >= 1) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
+
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Producer=%" G_GINT64_MODIFIER "u)", producer_id);
 
@@ -6890,7 +6899,7 @@ dissect_kafka_write_txn_markers_request(tvbuff_t *tvb, packet_info *pinfo, proto
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_markers,
                                      &subti, "Markers");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 1, api_version,
                                  &dissect_kafka_write_txn_markers_request_marker, NULL);
     proto_item_set_end(subti, tvb, offset);
 
@@ -6917,6 +6926,10 @@ dissect_kafka_write_txn_markers_response_partition(tvbuff_t *tvb, packet_info *p
     proto_tree_add_item(subtree, hf_kafka_error, tvb, offset, 2, ENC_BIG_ENDIAN);
     offset += 2;
 
+    if (api_version >= 1) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
+
     proto_item_set_end(subti, tvb, offset);
 
     if (partition_error_code == 0) {
@@ -6938,12 +6951,16 @@ dissect_kafka_write_txn_markers_response_topic(tvbuff_t *tvb, packet_info *pinfo
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 1, &topic_start, &topic_len);
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partitions");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 1, api_version,
                                  &dissect_kafka_write_txn_markers_response_partition, NULL);
     proto_item_set_end(subsubti, tvb, offset);
+
+    if (api_version >= 1) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Topic=%s)",
@@ -6968,9 +6985,13 @@ dissect_kafka_write_txn_markers_response_marker(tvbuff_t *tvb, packet_info *pinf
     offset += 8;
 
     subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Topics");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, api_version >= 1, api_version,
                                  &dissect_kafka_write_txn_markers_response_topic, NULL);
     proto_item_set_end(subsubti, tvb, offset);
+
+    if (api_version >= 1) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Producer=%" G_GINT64_MODIFIER "u)", producer_id);
@@ -6990,10 +7011,14 @@ dissect_kafka_write_txn_markers_response(tvbuff_t *tvb, packet_info *pinfo, prot
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
                                      ett_kafka_markers,
                                      &subti, "Markers");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 1, api_version,
                                  &dissect_kafka_write_txn_markers_response_marker, NULL);
 
     proto_item_set_end(subti, tvb, offset);
+
+    if (api_version >= 1) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
 
     return offset;
 }
