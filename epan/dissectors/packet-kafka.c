@@ -461,7 +461,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_DELETE_ACLS,                   "DeleteAcls",
       0, 2, 2 },
     { KAFKA_DESCRIBE_CONFIGS,              "DescribeConfigs",
-      0, 3, -1 },
+      0, 4, 4 },
     { KAFKA_ALTER_CONFIGS,                 "AlterConfigs",
       0, 1, -1 },
     { KAFKA_ALTER_REPLICA_LOG_DIRS,        "AlterReplicaLogDirs",
@@ -7796,9 +7796,9 @@ dissect_kafka_delete_acls_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree
 
 static int
 dissect_kafka_describe_config_request_entry(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
-                                               int offset, kafka_api_version_t api_version _U_)
+                                               int offset, kafka_api_version_t api_version)
 {
-    offset = dissect_kafka_string(tree, hf_kafka_config_key, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_config_key, tvb, pinfo, offset, api_version >= 4, NULL, NULL);
 
     return offset;
 }
@@ -7807,22 +7807,21 @@ static int
 dissect_kafka_describe_config_request_resource(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                          int offset, kafka_api_version_t api_version)
 {
-    proto_item *subti, *subsubti;
-    proto_tree *subtree, *subsubtree;
+    proto_item *subti;
+    proto_tree *subtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_resource, &subti, "Resource");
 
-    proto_tree_add_item(subtree, hf_kafka_config_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
+    offset = dissect_kafka_int8(subtree, hf_kafka_config_resource_type, tvb, pinfo, offset, NULL);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, api_version >= 4, NULL, NULL);
 
-    subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_config_entries, &subsubti, "Entries");
-
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 4, api_version,
                                  &dissect_kafka_describe_config_request_entry, NULL);
 
-    proto_item_set_end(subti, tvb, offset);
+    if (api_version >= 4) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
+    }
 
     return offset;
 }
@@ -7831,33 +7830,28 @@ static int
 dissect_kafka_describe_configs_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                   kafka_api_version_t api_version)
 {
-    proto_item *subti;
-    proto_tree *subtree;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_resources,
-                                     &subti, "Resources");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 4, api_version,
                                  &dissect_kafka_describe_config_request_resource, NULL);
 
     if (api_version >= 1) {
-        proto_tree_add_item(subtree, hf_kafka_config_include_synonyms, tvb, offset, 1, ENC_BIG_ENDIAN);
-        offset += 1;
+        offset = dissect_kafka_int8(tree, hf_kafka_config_include_synonyms, tvb, pinfo, offset, NULL);
     }
 
     if (api_version >= 3) {
-        proto_tree_add_item(subtree, hf_kafka_config_include_documentation, tvb, offset, 1, ENC_BIG_ENDIAN);
-        offset += 1;
+        offset = dissect_kafka_int8(tree, hf_kafka_config_include_documentation, tvb, pinfo, offset, NULL);
     }
 
-    proto_item_set_end(subti, tvb, offset);
+    if (api_version >= 4) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
 
     return offset;
 }
 
 static int
 dissect_kafka_describe_configs_response_synonym(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
-                                              int offset, kafka_api_version_t api_version _U_)
+                                              int offset, kafka_api_version_t api_version)
 {
     proto_item *subti;
     proto_tree *subtree;
@@ -7865,11 +7859,14 @@ dissect_kafka_describe_configs_response_synonym(tvbuff_t *tvb, packet_info *pinf
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_config_synonym, &subti, "Synonym");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, 0, &key_start, &key_len);
-    offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, api_version >= 4, &key_start, &key_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, api_version >= 4, NULL, NULL);
 
-    proto_tree_add_item(subtree, hf_kafka_config_source, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
+    offset = dissect_kafka_int8(subtree, hf_kafka_config_source, tvb, pinfo, offset, NULL);
+
+    if (api_version >= 4) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
+    }
 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Key=%s)",
@@ -7881,48 +7878,43 @@ dissect_kafka_describe_configs_response_synonym(tvbuff_t *tvb, packet_info *pinf
 
 static int
 dissect_kafka_describe_configs_response_entry(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
-                                         int offset, kafka_api_version_t api_version _U_)
+                                         int offset, kafka_api_version_t api_version)
 {
-    proto_item *subti, *subsubti;
-    proto_tree *subtree, *subsubtree;
+    proto_item *subti;
+    proto_tree *subtree;
     int key_start, key_len;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_config_entry, &subti, "Entry");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, 0, &key_start, &key_len);
-    offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, pinfo, offset, api_version >= 4, &key_start, &key_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, pinfo, offset, api_version >= 4, NULL, NULL);
 
-    proto_tree_add_item(subtree, hf_kafka_config_readonly, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
+    offset = dissect_kafka_int8(subtree, hf_kafka_config_readonly, tvb, pinfo, offset, NULL);
 
     if (api_version == 0) {
-        proto_tree_add_item(subtree, hf_kafka_config_default, tvb, offset, 1, ENC_BIG_ENDIAN);
-        offset += 1;
-    } else {
-        proto_tree_add_item(subtree, hf_kafka_config_source, tvb, offset, 1, ENC_BIG_ENDIAN);
-        offset += 1;
+        offset = dissect_kafka_int8(subtree, hf_kafka_config_default, tvb, pinfo, offset, NULL);
+    }
+    if (api_version >= 1) {
+        offset = dissect_kafka_int8(subtree, hf_kafka_config_source, tvb, pinfo, offset, NULL);
     }
 
-    proto_tree_add_item(subtree, hf_kafka_config_sensitive, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
+    offset = dissect_kafka_int8(subtree, hf_kafka_config_sensitive, tvb, pinfo, offset, NULL);
 
     if (api_version >= 1) {
-        subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
-                                            ett_kafka_config_synonyms,
-                                            &subsubti, "Synonyms");
-        offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+        offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 4, api_version,
                                      &dissect_kafka_describe_configs_response_synonym, NULL);
-
-        proto_item_set_end(subsubti, tvb, offset);
     }
 
     if (api_version >= 3) {
-        proto_tree_add_item(subtree, hf_kafka_config_type, tvb, offset, 1, ENC_BIG_ENDIAN);
-        offset += 1;
+        offset = dissect_kafka_int8(subtree, hf_kafka_config_type, tvb, pinfo, offset, NULL);
     }
 
     if (api_version >= 3) {
-        offset = dissect_kafka_string(subtree, hf_kafka_config_documentation, tvb, pinfo, offset, 0, NULL, NULL);
+        offset = dissect_kafka_string(subtree, hf_kafka_config_documentation, tvb, pinfo, offset, api_version >= 4, NULL, NULL);
+    }
+
+    if (api_version >= 4) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
     }
 
     proto_item_set_end(subti, tvb, offset);
@@ -7934,30 +7926,29 @@ dissect_kafka_describe_configs_response_entry(tvbuff_t *tvb, packet_info *pinfo,
 }
 
 static int
-dissect_kafka_describe_configs_response_resource(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
-                                          int offset, kafka_api_version_t api_version _U_)
+dissect_kafka_describe_configs_response_resource(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                          int offset, kafka_api_version_t api_version)
 {
-    proto_item *subti, *subsubti;
-    proto_tree *subtree, *subsubtree;
+    proto_item *subti;
+    proto_tree *subtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_resource, &subti, "Resource");
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, api_version >= 4, NULL, NULL);
 
-    proto_tree_add_item(subtree, hf_kafka_config_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
+    offset = dissect_kafka_int8(subtree, hf_kafka_config_resource_type, tvb, pinfo, offset, NULL);
 
-    offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, pinfo, offset, api_version >= 4, NULL, NULL);
 
-    subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
-                                        ett_kafka_config_entries,
-                                        &subsubti, "Entries");
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 4, api_version,
                                  &dissect_kafka_describe_configs_response_entry, NULL);
 
-    proto_item_set_end(subsubti, tvb, offset);
+    if (api_version >= 4) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
+    }
+
     proto_item_set_end(subti, tvb, offset);
 
     return offset;
@@ -7967,18 +7958,15 @@ static int
 dissect_kafka_describe_configs_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                    kafka_api_version_t api_version)
 {
-    proto_item *subti;
-    proto_tree *subtree;
 
-    offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
+    offset = dissect_kafka_int32(tree, hf_kafka_throttle_time, tvb, pinfo, offset, NULL);
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_resources,
-                                     &subti, "Resources");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 4, api_version,
                                  &dissect_kafka_describe_configs_response_resource, NULL);
 
-    proto_item_set_end(subti, tvb, offset);
+    if (api_version >= 4) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
 
     return offset;
 }
