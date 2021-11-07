@@ -465,7 +465,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_ALTER_CONFIGS,                 "AlterConfigs",
       0, 2, 2 },
     { KAFKA_ALTER_REPLICA_LOG_DIRS,        "AlterReplicaLogDirs",
-      0, 1, -1 },
+      0, 2, 2 },
     { KAFKA_DESCRIBE_LOG_DIRS,             "DescribeLogDirs",
       0, 2, 2 },
     { KAFKA_SASL_AUTHENTICATE,             "SaslAuthenticate",
@@ -8078,31 +8078,30 @@ dissect_kafka_alter_configs_response(tvbuff_t *tvb, packet_info *pinfo, proto_tr
 /* ALTER_REPLICA_LOG_DIRS REQUEST/RESPONSE */
 
 static int
-dissect_kafka_alter_replica_log_dirs_request_partition(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+dissect_kafka_alter_replica_log_dirs_request_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                          int offset, kafka_api_version_t api_version _U_)
 {
-    proto_tree_add_item(tree, hf_kafka_partition_id, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
-
-    return offset;
+    return dissect_kafka_int32(tree, hf_kafka_partition_id, tvb, pinfo, offset, NULL);
 }
 
 static int
 dissect_kafka_alter_replica_log_dirs_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
-                                                 int offset, kafka_api_version_t api_version _U_)
+                                                 int offset, kafka_api_version_t api_version)
 {
-    proto_item *subti, *subsubti;
-    proto_tree *subtree, *subsubtree;
+    proto_item *subti;
+    proto_tree *subtree;
     int topic_start, topic_len;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_resource, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, 0, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 2, &topic_start, &topic_len);
 
-    subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topics, &subsubti, "Partitions");
-
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 2, api_version,
                                  &dissect_kafka_alter_replica_log_dirs_request_partition, NULL);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
+    }
 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Name=%s)",
@@ -8116,17 +8115,19 @@ static int
 dissect_kafka_alter_replica_log_dirs_request_log_dir(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                             int offset, kafka_api_version_t api_version)
 {
-    proto_item *subti, *subsubti;
-    proto_tree *subtree, *subsubtree;
+    proto_item *subti;
+    proto_tree *subtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_log_dir, &subti, "Log Directory");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_log_dir, tvb, pinfo, offset, 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_log_dir, tvb, pinfo, offset, api_version >= 2, NULL, NULL);
 
-    subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topics, &subsubti, "Topics");
-
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 2, api_version,
                                  &dissect_kafka_alter_replica_log_dirs_request_topic, NULL);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
+    }
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -8137,23 +8138,17 @@ static int
 dissect_kafka_alter_replica_log_dirs_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                     kafka_api_version_t api_version)
 {
-    proto_item *subti;
-    proto_tree *subtree;
-
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_log_dirs,
-                                     &subti, "Log Directories");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 2, api_version,
                                  &dissect_kafka_alter_replica_log_dirs_request_log_dir, NULL);
-
-    proto_item_set_end(subti, tvb, offset);
-
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
     return offset;
 }
 
 static int
-dissect_kafka_alter_replica_log_dirs_response_partition(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
-                                       int offset, kafka_api_version_t api_version _U_)
+dissect_kafka_alter_replica_log_dirs_response_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                                       int offset, kafka_api_version_t api_version)
 {
     proto_item *subti;
     proto_tree *subtree;
@@ -8161,11 +8156,13 @@ dissect_kafka_alter_replica_log_dirs_response_partition(tvbuff_t *tvb, packet_in
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &subti, "Partition");
 
-    partition_id = tvb_get_ntohl(tvb, offset);
-    proto_tree_add_item(subtree, hf_kafka_partition_id, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
+    offset = dissect_kafka_int32(tree, hf_kafka_partition_id, tvb, pinfo, offset, &partition_id);
 
     offset = dissect_kafka_error(tvb, pinfo, subtree, offset);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
+    }
 
     proto_item_append_text(subti, " (ID=%u)", partition_id);
 
@@ -8175,21 +8172,23 @@ dissect_kafka_alter_replica_log_dirs_response_partition(tvbuff_t *tvb, packet_in
 }
 
 static int
-dissect_kafka_alter_replica_log_dirs_response_topic(tvbuff_t *tvb, packet_info *pinfo _U_, proto_tree *tree,
+dissect_kafka_alter_replica_log_dirs_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                               int offset, kafka_api_version_t api_version)
 {
-    proto_item *subti, *subsubti;
-    proto_tree *subtree, *subsubtree;
+    proto_item *subti;
+    proto_tree *subtree;
     int topic_start, topic_len;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_log_dir, tvb, pinfo, offset, 0, &topic_start, &topic_len);
+    offset = dissect_kafka_string(subtree, hf_kafka_log_dir, tvb, pinfo, offset, api_version >= 2, &topic_start, &topic_len);
 
-    subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partitions, &subsubti, "Partition");
-
-    offset = dissect_kafka_array(subsubtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 2, api_version,
                                  &dissect_kafka_alter_replica_log_dirs_response_partition, NULL);
+
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
+    }
 
     proto_item_set_end(subti, tvb, offset);
     proto_item_append_text(subti, " (Name=%s)",
@@ -8203,18 +8202,14 @@ static int
 dissect_kafka_alter_replica_log_dirs_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
                                      kafka_api_version_t api_version)
 {
-    proto_item *subti;
-    proto_tree *subtree;
-
     offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_topics,
-                                     &subti, "Topics");
-    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, 0, api_version,
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 2, api_version,
                                  &dissect_kafka_alter_replica_log_dirs_response_topic, NULL);
 
-    proto_item_set_end(subti, tvb, offset);
+    if (api_version >= 2) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
 
     return offset;
 }
