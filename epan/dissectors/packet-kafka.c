@@ -397,7 +397,7 @@ typedef struct kafka_conv_info_t {
 #define KAFKA_BROKER_REGISTRATION             62
 #define KAFKA_BROKER_HEARTBEAT                63
 #define KAFKA_UNREGISTER_BROKER               64
-#define KAFKA_DECRIBE_TRANSACTIONS            65
+#define KAFKA_DESCRIBE_TRANSACTIONS           65
 #define KAFKA_LIST_TRANSACTIONS               66
 #define KAFKA_ALLLOCATE_PRODUCER_IDS          67
 
@@ -508,12 +508,48 @@ static const kafka_api_info_t kafka_apis[] = {
       0, 0, 0 },
     { KAFKA_LIST_PARTITION_REASSIGNMENTS,  "ListPartitionReassignments",
       0, 0, 0 },
-    { KAFKA_OFFSET_DELETE,  "OffsetDelete",
+    { KAFKA_OFFSET_DELETE,           "OffsetDelete",
       0, 0, -1 },
     { KAFKA_DESCRIBE_CLIENT_QUOTAS,  "DescribeClientQuotas",
       0, 1, 1 },
-    { KAFKA_ALTER_CLIENT_QUOTAS,  "AlterClientQuotas",
+    { KAFKA_ALTER_CLIENT_QUOTAS,     "AlterClientQuotas",
       0, 1, 1 },
+    { KAFKA_DESCRIBE_USER_SCRAM_CREDENTIALS, "DescribeUserScramCredentials",
+      0, 0, 0 },
+    { KAFKA_ALTER_USER_SCRAM_CREDENTIALS,   "AlterUserScramCredentials",
+      0, 0, 0 },
+    { KAFKA_VOTE,                           "Vote",
+      0, 0, 0 },
+    { KAFKA_BEGIN_QUORUM_EPOCH,             "BeginQuorumEpoch",
+      0, 0, -1 },
+    { KAFKA_END_QUORUM_EPOCH,               "EndQuorumEpoch",
+      0, 0, -1 },
+    { KAFKA_DESCRIBE_QUORUM,                "DescribeQuorum",
+      0, 0, 0 },
+    { KAFKA_ALTER_ISR,                      "AlterIsr",
+      0, 0, 0 },
+    { KAFKA_UPDATE_FEATURES,                "UpdateFeatures",
+      0, 0, 0 },
+    { KAFKA_ENVELOPE,                       "Envelope",
+      0, 0, 0 },
+    { KAFKA_FETCH_SHAPSHOT,                 "FetchSnapshot",
+      0, 0, 0 },
+    { KAFKA_DESCRIBE_CLUSTER,               "DescribeCluster",
+      0, 0, 0 },
+    { KAFKA_DESCRIBE_PRODUCERS,             "DescribeProducers",
+      0, 0, 0 },
+    { KAFKA_BROKER_REGISTRATION,            "BrokerRegistration",
+      0, 0, 0 },
+    { KAFKA_BROKER_HEARTBEAT,               "BrokerHeartbeat",
+      0, 0, 0 },
+    { KAFKA_UNREGISTER_BROKER,              "UnregisterBroker",
+      0, 0, 0 },
+    { KAFKA_DESCRIBE_TRANSACTIONS,          "DescribeTransactions",
+      0, 0, 0 },
+    { KAFKA_LIST_TRANSACTIONS,              "ListTransactions",
+      0, 0, 0 },
+    { KAFKA_ALLLOCATE_PRODUCER_IDS,         "AllocateProducerIds",
+      0, 0, 0 },
 };
 
 /*
