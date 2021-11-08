@@ -222,9 +222,11 @@ static int hf_kafka_quota_match_type = -1;
 static int hf_kafka_quota_match_text = -1;
 static int hf_kafka_quota_strict_match = -1;
 static int hf_kafka_quota_validate_only = -1;
-static int hf_kafka_user_name = -1;
+static int hf_kafka_scram_user_name = -1;
 static int hf_kafka_scram_mechanism = -1;
 static int hf_kafka_scram_iterations = -1;
+static int hf_kafka_scram_salt = -1;
+static int hf_kafka_scram_salted_password = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
@@ -297,8 +299,11 @@ static int ett_kafka_quota_operation = -1;
 static int ett_kafka_diverging_epoch = -1;
 static int ett_kafka_current_leader = -1;
 static int ett_kafka_snapshot_id = -1;
-static int ett_kafka_user = -1;
-static int ett_kafka_credential_info = -1;
+static int ett_kafka_scram_user = -1;
+static int ett_kafka_scram_credential_info = -1;
+static int ett_kafka_scram_upsertion = -1;
+static int ett_kafka_scram_deletion = -1;
+static int ett_kafka_scram_result = -1;
 
 static expert_field ei_kafka_request_missing = EI_INIT;
 static expert_field ei_kafka_duplicate_correlation_id = EI_INIT;
@@ -9986,10 +9991,10 @@ dissect_kafka_describe_user_scram_credentials_request_user(tvbuff_t *tvb, packet
     proto_tree *subtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_user,
+                                     ett_kafka_scram_user,
                                      &subti, "User");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_user_name, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_scram_user_name, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
 
     if (api_version >= 0) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
@@ -10024,7 +10029,7 @@ dissect_kafka_describe_user_scram_credentials_response_credential_info(tvbuff_t 
     proto_tree *subtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_credential_info,
+                                     ett_kafka_scram_credential_info,
                                      &subti, "Credential Info");
 
     offset = dissect_kafka_int8(subtree, hf_kafka_scram_mechanism, tvb, pinfo, offset, NULL);
@@ -10048,10 +10053,10 @@ dissect_kafka_describe_user_scram_credentials_response_user(tvbuff_t *tvb, packe
     proto_tree *subtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_user,
+                                     ett_kafka_scram_user,
                                      &subti, "User");
 
-    offset = dissect_kafka_string(subtree, hf_kafka_user_name, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_scram_user_name, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
 
     offset = dissect_kafka_error_ret(tvb, pinfo, subtree, offset, NULL);
     offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
@@ -10079,6 +10084,119 @@ dissect_kafka_describe_user_scram_credentials_response(tvbuff_t *tvb, packet_inf
 
     offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 0, api_version,
                                  &dissect_kafka_describe_user_scram_credentials_response_user, NULL);
+
+    if (api_version >= 0) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
+
+    return offset;
+}
+
+/* ALTER_USER_SCRAM_CREDENTIALS REQUEST/RESPONSE */
+
+static int
+dissect_kafka_alter_user_scram_credentials_request_deletion(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                           kafka_api_version_t api_version)
+{
+
+    proto_item *subti;
+    proto_tree *subtree;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_scram_deletion,
+                                     &subti, "Deletion");
+
+    offset = dissect_kafka_string(subtree, hf_kafka_scram_user_name, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+    offset = dissect_kafka_int8(subtree, hf_kafka_scram_mechanism, tvb, pinfo, offset, NULL);
+
+    if (api_version >= 0) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
+    }
+
+    proto_item_set_end(subti, tvb, offset);
+
+    return offset;
+}
+
+static int
+dissect_kafka_alter_user_scram_credentials_request_upsertion(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                            kafka_api_version_t api_version)
+{
+
+    proto_item *subti;
+    proto_tree *subtree;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_scram_upsertion,
+                                     &subti, "Upsertion");
+
+    offset = dissect_kafka_string(subtree, hf_kafka_scram_user_name, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+    offset = dissect_kafka_int8(subtree, hf_kafka_scram_mechanism, tvb, pinfo, offset, NULL);
+    offset = dissect_kafka_int32(subtree, hf_kafka_scram_iterations, tvb, pinfo, offset, NULL);
+    offset = dissect_kafka_bytes(subtree, hf_kafka_scram_salt, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+    offset = dissect_kafka_bytes(subtree, hf_kafka_scram_salted_password, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+
+    if (api_version >= 0) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
+    }
+
+    proto_item_set_end(subti, tvb, offset);
+
+    return offset;
+}
+
+static int
+dissect_kafka_alter_user_scram_credentials_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                      kafka_api_version_t api_version)
+{
+
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 0, api_version,
+                                 &dissect_kafka_alter_user_scram_credentials_request_deletion, NULL);
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 0, api_version,
+                                 &dissect_kafka_alter_user_scram_credentials_request_upsertion, NULL);
+
+    if (api_version >= 0) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
+
+    return offset;
+}
+
+static int
+dissect_kafka_alter_user_scram_credentials_response_result(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                            kafka_api_version_t api_version)
+{
+
+    proto_item *subti;
+    proto_tree *subtree;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_scram_result,
+                                     &subti, "Result");
+
+    offset = dissect_kafka_string(subtree, hf_kafka_scram_user_name, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+
+    offset = dissect_kafka_error_ret(tvb, pinfo, subtree, offset, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+
+    if (api_version >= 0) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
+    }
+
+    proto_item_set_end(subti, tvb, offset);
+
+    return offset;
+}
+
+static int
+dissect_kafka_alter_user_scram_credentials_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                       kafka_api_version_t api_version)
+{
+
+    offset = dissect_kafka_throttle_time(tvb, pinfo, tree, offset);
+
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 0, api_version,
+                                 &dissect_kafka_alter_user_scram_credentials_response_result, NULL);
 
     if (api_version >= 0) {
         offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
@@ -10378,6 +10496,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_DESCRIBE_USER_SCRAM_CREDENTIALS:
                 offset = dissect_kafka_describe_user_scram_credentials_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_ALTER_USER_SCRAM_CREDENTIALS:
+                offset = dissect_kafka_alter_user_scram_credentials_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
         }
 
     }
@@ -10613,6 +10734,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_DESCRIBE_USER_SCRAM_CREDENTIALS:
                 offset = dissect_kafka_describe_user_scram_credentials_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_ALTER_USER_SCRAM_CREDENTIALS:
+                offset = dissect_kafka_alter_user_scram_credentials_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
         }
 
@@ -11595,19 +11719,29 @@ proto_register_kafka_protocol_fields(int protocol)
                 FT_BOOLEAN, BASE_NONE, 0, 0,
                 NULL, HFILL }
         },
-        { &hf_kafka_user_name,
-                { "User Name", "kafka.user_name",
+        { &hf_kafka_scram_user_name,
+                { "User Name", "kafka.scram_user_name",
                         FT_BOOLEAN, BASE_NONE, 0, 0,
                         NULL, HFILL }
         },
         { &hf_kafka_scram_mechanism,
-                { "SCRAM Mechanism", "kafka.scram_mechanism",
+                { "Mechanism", "kafka.scram_mechanism",
                         FT_INT8, BASE_DEC, VALS(scram_mechanisms), 0,
                         NULL, HFILL }
         },
         { &hf_kafka_scram_iterations,
-                { "SCRAM Iterations", "kafka.scram_iterations",
+                { "Iterations", "kafka.scram_iterations",
                         FT_INT32, BASE_DEC, 0, 0,
+                        NULL, HFILL }
+        },
+        { &hf_kafka_scram_salt,
+                { "Salt", "kafka.scram_salt",
+                        FT_BYTES, BASE_NONE, 0, 0,
+                        NULL, HFILL }
+        },
+        { &hf_kafka_scram_salted_password,
+                { "Salted Password", "kafka.scram_salted_password",
+                        FT_BYTES, BASE_NONE, 0, 0,
                         NULL, HFILL }
         },
     };
@@ -11691,8 +11825,11 @@ proto_register_kafka_protocol_subtrees(const int proto _U_)
         &ett_kafka_diverging_epoch,
         &ett_kafka_current_leader,
         &ett_kafka_snapshot_id,
-        &ett_kafka_user,
-        &ett_kafka_credential_info,
+        &ett_kafka_scram_user,
+        &ett_kafka_scram_credential_info,
+        &ett_kafka_scram_deletion,
+        &ett_kafka_scram_upsertion,
+        &ett_kafka_scram_result,
     };
     proto_register_subtree_array(ett, array_length(ett));
 }
