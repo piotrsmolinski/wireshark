@@ -399,7 +399,7 @@ typedef struct kafka_conv_info_t {
 #define KAFKA_UNREGISTER_BROKER               64
 #define KAFKA_DESCRIBE_TRANSACTIONS           65
 #define KAFKA_LIST_TRANSACTIONS               66
-#define KAFKA_ALLLOCATE_PRODUCER_IDS          67
+#define KAFKA_ALLOCATE_PRODUCER_IDS           67
 
 /*
  * Check for message changes here:
@@ -548,7 +548,7 @@ static const kafka_api_info_t kafka_apis[] = {
       0, 0, 0 },
     { KAFKA_LIST_TRANSACTIONS,              "ListTransactions",
       0, 0, 0 },
-    { KAFKA_ALLLOCATE_PRODUCER_IDS,         "AllocateProducerIds",
+    { KAFKA_ALLOCATE_PRODUCER_IDS,          "AllocateProducerIds",
       0, 0, 0 },
 };
 
