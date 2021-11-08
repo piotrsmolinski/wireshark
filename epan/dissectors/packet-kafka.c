@@ -382,6 +382,24 @@ typedef struct kafka_conv_info_t {
 #define KAFKA_OFFSET_DELETE                 47
 #define KAFKA_DESCRIBE_CLIENT_QUOTAS        48
 #define KAFKA_ALTER_CLIENT_QUOTAS           49
+#define KAFKA_DESCRIBE_USER_SCRAM_CREDENTIALS 50
+#define KAFKA_ALTER_USER_SCRAM_CREDENTIALS    51
+#define KAFKA_VOTE                            52
+#define KAFKA_BEGIN_QUORUM_EPOCH              53
+#define KAFKA_END_QUORUM_EPOCH                54
+#define KAFKA_DESCRIBE_QUORUM                 55
+#define KAFKA_ALTER_ISR                       56
+#define KAFKA_UPDATE_FEATURES                 57
+#define KAFKA_ENVELOPE                        58
+#define KAFKA_FETCH_SHAPSHOT                  59
+#define KAFKA_DESCRIBE_CLUSTER                60
+#define KAFKA_DESCRIBE_PRODUCERS              61
+#define KAFKA_BROKER_REGISTRATION             62
+#define KAFKA_BROKER_HEARTBEAT                63
+#define KAFKA_UNREGISTER_BROKER               64
+#define KAFKA_DECRIBE_TRANSACTIONS            65
+#define KAFKA_LIST_TRANSACTIONS               66
+#define KAFKA_ALLLOCATE_PRODUCER_IDS          67
 
 /*
  * Check for message changes here:
