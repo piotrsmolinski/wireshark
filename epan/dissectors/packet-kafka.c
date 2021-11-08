@@ -8273,12 +8273,12 @@ dissect_kafka_describe_log_dirs_response_partition(tvbuff_t *tvb, packet_info *p
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &subti, "Partition");
 
-    offset = dissect_kafka_int32(tree, hf_kafka_partition_id, tvb, pinfo, offset, &partition_id);
-    offset = dissect_kafka_int64(tree, hf_kafka_segment_size, tvb, pinfo, offset, NULL);
-    offset = dissect_kafka_int64(tree, hf_kafka_offset_lag, tvb, pinfo, offset, NULL);
-    offset = dissect_kafka_int8(tree, hf_kafka_future, tvb, pinfo, offset, NULL);
+    offset = dissect_kafka_int32(subtree, hf_kafka_partition_id, tvb, pinfo, offset, &partition_id);
+    offset = dissect_kafka_int64(subtree, hf_kafka_segment_size, tvb, pinfo, offset, NULL);
+    offset = dissect_kafka_int64(subtree, hf_kafka_offset_lag, tvb, pinfo, offset, NULL);
+    offset = dissect_kafka_int8(subtree, hf_kafka_future, tvb, pinfo, offset, NULL);
     if (api_version >= 2) {
-        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
     }
 
     proto_item_set_end(subti, tvb, offset);
