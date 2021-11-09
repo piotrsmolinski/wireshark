@@ -121,6 +121,11 @@ static int hf_kafka_group_leader_id = -1;
 static int hf_kafka_leader_epoch = -1;
 static int hf_kafka_current_leader_epoch = -1;
 static int hf_kafka_last_fetched_epoch = -1;
+static int hf_kafka_candidate_id = -1;
+static int hf_kafka_candidate_epoch = -1;
+static int hf_kafka_last_offset = -1;
+static int hf_kafka_last_offset_epoch = -1;
+static int hf_kafka_vote_granted = -1;
 static int hf_kafka_end_offset = -1;
 static int hf_kafka_is_internal = -1;
 static int hf_kafka_isolation_level = -1;
@@ -8292,7 +8297,7 @@ static int
 dissect_kafka_describe_log_dirs_request_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
                                                        int offset, kafka_api_version_t api_version _U_)
 {
-    return dissect_kafka_int32(tree, hf_kafka_partition_id, tvb, pinfo, offset, NULL);;
+    return dissect_kafka_int32(tree, hf_kafka_partition_id, tvb, pinfo, offset, NULL);
 }
 
 static int
@@ -10205,6 +10210,145 @@ dissect_kafka_alter_user_scram_credentials_response(tvbuff_t *tvb, packet_info *
     return offset;
 }
 
+/* VOTE REQUEST/RESPONSE */
+
+static int
+dissect_kafka_vote_request_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                            kafka_api_version_t api_version)
+{
+
+    proto_item *subti;
+    proto_tree *subtree;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_partition,
+                                     &subti, "Partition");
+
+    offset = dissect_kafka_int32(subtree, hf_kafka_partition_id, tvb, pinfo, offset, NULL);
+    offset = dissect_kafka_int32(subtree, hf_kafka_candidate_epoch, tvb, pinfo, offset, NULL);
+    offset = dissect_kafka_int32(subtree, hf_kafka_candidate_id, tvb, pinfo, offset, NULL);
+    offset = dissect_kafka_int32(subtree, hf_kafka_last_offset_epoch, tvb, pinfo, offset, NULL);
+    offset = dissect_kafka_int64(subtree, hf_kafka_last_offset, tvb, pinfo, offset, NULL);
+
+    if (api_version >= 0) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
+    }
+
+    proto_item_set_end(subti, tvb, offset);
+
+    return offset;
+}
+
+static int
+dissect_kafka_vote_request_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                             kafka_api_version_t api_version)
+{
+
+    proto_item *subti;
+    proto_tree *subtree;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_topic,
+                                     &subti, "Topic");
+
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 0, api_version,
+                                 &dissect_kafka_vote_request_partition, NULL);
+
+    if (api_version >= 0) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
+    }
+
+    proto_item_set_end(subti, tvb, offset);
+
+    return offset;
+}
+
+static int
+dissect_kafka_vote_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                   kafka_api_version_t api_version)
+{
+
+    offset = dissect_kafka_string(tree, hf_kafka_cluster_id, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 0, api_version,
+                                 &dissect_kafka_vote_request_topic, NULL);
+
+    if (api_version >= 0) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
+
+    return offset;
+}
+
+static int
+dissect_kafka_vote_response_partition(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                           kafka_api_version_t api_version)
+{
+    proto_item *subti;
+    proto_tree *subtree;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_partition,
+                                     &subti, "Partition");
+
+    offset = dissect_kafka_int32(subtree, hf_kafka_partition_id, tvb, pinfo, offset, NULL);
+    offset = dissect_kafka_error_ret(tvb, pinfo, subtree, offset, NULL);
+    offset = dissect_kafka_int32(subtree, hf_kafka_leader_id, tvb, pinfo, offset, NULL);
+    offset = dissect_kafka_int32(subtree, hf_kafka_leader_epoch, tvb, pinfo, offset, NULL);
+    offset = dissect_kafka_int8(subtree, hf_kafka_vote_granted, tvb, pinfo, offset, NULL);
+
+    if (api_version >= 0) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
+    }
+
+    proto_item_set_end(subti, tvb, offset);
+
+    return offset;
+}
+
+static int
+dissect_kafka_vote_response_topic(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                      kafka_api_version_t api_version)
+{
+
+    proto_item *subti;
+    proto_tree *subtree;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_topic,
+                                     &subti, "Topic");
+
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+    offset = dissect_kafka_array(subtree, tvb, pinfo, offset, api_version >= 0, api_version,
+                                 &dissect_kafka_vote_response_partition, NULL);
+
+    if (api_version >= 0) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, subtree, offset, api_version, NULL);
+    }
+
+    proto_item_set_end(subti, tvb, offset);
+
+    return offset;
+}
+
+static int
+dissect_kafka_vote_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                                    kafka_api_version_t api_version)
+{
+
+    offset = dissect_kafka_error_ret(tvb, pinfo, tree, offset, NULL);
+
+    offset = dissect_kafka_array(tree, tvb, pinfo, offset, api_version >= 0, api_version,
+                                 &dissect_kafka_vote_response_topic, NULL);
+
+    if (api_version >= 0) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
+
+    return offset;
+}
+
 /* MAIN */
 
 static wmem_tree_t *
@@ -10499,6 +10643,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_ALTER_USER_SCRAM_CREDENTIALS:
                 offset = dissect_kafka_alter_user_scram_credentials_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_VOTE:
+                offset = dissect_kafka_vote_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
         }
 
     }
@@ -10737,6 +10884,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_ALTER_USER_SCRAM_CREDENTIALS:
                 offset = dissect_kafka_alter_user_scram_credentials_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_VOTE:
+                offset = dissect_kafka_vote_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
         }
 
@@ -11192,6 +11342,31 @@ proto_register_kafka_protocol_fields(int protocol)
                 { "Last Fetched Epoch", "kafka.last_fetched_epoch",
                         FT_INT32, BASE_DEC, 0, 0,
                         NULL, HFILL }
+        },
+        { &hf_kafka_candidate_id,
+          { "Candidate ID", "kafka.candidate_id",
+            FT_INT32, BASE_DEC, 0, 0,
+            NULL, HFILL }
+        },
+        { &hf_kafka_candidate_epoch,
+          { "Candidate Epoch", "kafka.candidate_epoch",
+            FT_INT32, BASE_DEC, 0, 0,
+            NULL, HFILL }
+        },
+        { &hf_kafka_last_offset,
+          { "Last Offset", "kafka.last_offset",
+            FT_INT64, BASE_DEC, 0, 0,
+            NULL, HFILL }
+        },
+        { &hf_kafka_last_offset_epoch,
+          { "Candidate Epoch", "kafka.last_offset_epoch",
+            FT_INT32, BASE_DEC, 0, 0,
+            NULL, HFILL }
+        },
+        { &hf_kafka_vote_granted,
+          { "Vote Granted", "kafka.vote_granted",
+            FT_BOOLEAN, BASE_NONE, 0, 0,
+            NULL, HFILL }
         },
         { &hf_kafka_end_offset,
             { "End Offset", "kafka.end_offset",
