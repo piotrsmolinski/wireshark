@@ -240,6 +240,10 @@ static int hf_kafka_isr_version = -1;
 static int hf_kafka_feature_name = -1;
 static int hf_kafka_feature_max_version = -1;
 static int hf_kafka_feature_allow_downgrade = -1;
+static int hf_kafka_envelope_data = -1;
+static int hf_kafka_envelope_request_principal = -1;
+static int hf_kafka_envelope_client_host = -1;
+
 
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
@@ -11061,6 +11065,39 @@ dissect_kafka_update_features_response(tvbuff_t *tvb, packet_info *pinfo, proto_
     return offset;
 }
 
+/* ENVELOPE REQUEST/RESPONSE */
+
+static int
+dissect_kafka_envelope_request(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                      kafka_api_version_t api_version)
+{
+
+    offset = dissect_kafka_bytes(tree, hf_kafka_envelope_data, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+    offset = dissect_kafka_bytes(tree, hf_kafka_envelope_request_principal, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+    offset = dissect_kafka_bytes(tree, hf_kafka_envelope_client_host, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+
+    if (api_version >= 0) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
+
+    return offset;
+}
+
+static int
+dissect_kafka_envelope_response(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, int offset,
+                                       kafka_api_version_t api_version)
+{
+
+    offset = dissect_kafka_bytes(tree, hf_kafka_envelope_data, tvb, pinfo, offset, api_version >= 0, NULL, NULL);
+    offset = dissect_kafka_error_ret(tvb, pinfo, tree, offset, NULL);
+
+    if (api_version >= 0) {
+        offset = dissect_kafka_tagged_fields(tvb, pinfo, tree, offset, api_version, NULL);
+    }
+
+    return offset;
+}
+
 /* MAIN */
 
 static wmem_tree_t *
@@ -11373,6 +11410,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_UPDATE_FEATURES:
                 offset = dissect_kafka_update_features_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
+            case KAFKA_ENVELOPE:
+                offset = dissect_kafka_envelope_request(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
         }
 
     }
@@ -11629,6 +11669,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_UPDATE_FEATURES:
                 offset = dissect_kafka_update_features_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
+                break;
+            case KAFKA_ENVELOPE:
+                offset = dissect_kafka_envelope_response(tvb, pinfo, kafka_tree, offset, matcher->api_version);
                 break;
         }
 
@@ -12700,6 +12743,21 @@ proto_register_kafka_protocol_fields(int protocol)
         { &hf_kafka_feature_allow_downgrade,
           { "Allow Downgrade", "kafka.feature_allow_downgrade",
             FT_BOOLEAN, BASE_NONE, 0, 0,
+            NULL, HFILL }
+        },
+        { &hf_kafka_envelope_data,
+          { "Data", "kafka.envelope_data",
+            FT_BYTES, BASE_SHOW_ASCII_PRINTABLE, 0, 0,
+            NULL, HFILL }
+        },
+        { &hf_kafka_envelope_request_principal,
+          { "Data", "kafka.envelope_request_principal",
+            FT_BYTES, BASE_SHOW_ASCII_PRINTABLE, 0, 0,
+            NULL, HFILL }
+        },
+        { &hf_kafka_envelope_client_host,
+          { "Data", "kafka.envelope_client_host",
+            FT_BYTES, BASE_SHOW_ASCII_PRINTABLE, 0, 0,
             NULL, HFILL }
         },
     };
