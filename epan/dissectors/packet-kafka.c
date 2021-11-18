@@ -140,13 +140,10 @@ static int hf_kafka_throttle_time = -1;
 static int hf_kafka_api_versions_api_key = -1;
 static int hf_kafka_api_versions_min_version = -1;
 static int hf_kafka_api_versions_max_version = -1;
-static int hf_kafka_supported_feature_name = -1;
-static int hf_kafka_supported_feature_min_version = -1;
-static int hf_kafka_supported_feature_max_version = -1;
+static int hf_kafka_feature_name = -1;
+static int hf_kafka_feature_min_version = -1;
+static int hf_kafka_feature_max_version = -1;
 static int hf_kafka_finalized_features_epoch = -1;
-static int hf_kafka_finalized_feature_name = -1;
-static int hf_kafka_finalized_feature_min_version = -1;
-static int hf_kafka_finalized_feature_max_version = -1;
 static int hf_kafka_session_timeout = -1;
 static int hf_kafka_rebalance_timeout = -1;
 static int hf_kafka_member_id = -1;
@@ -237,8 +234,6 @@ static int hf_kafka_scram_iterations = -1;
 static int hf_kafka_scram_salt = -1;
 static int hf_kafka_scram_salted_password = -1;
 static int hf_kafka_isr_version = -1;
-static int hf_kafka_feature_name = -1;
-static int hf_kafka_feature_max_version = -1;
 static int hf_kafka_feature_allow_downgrade = -1;
 static int hf_kafka_envelope_data = -1;
 static int hf_kafka_envelope_request_principal = -1;
@@ -249,6 +244,7 @@ static int hf_kafka_snapshot_unaligned_records = -1;
 static int hf_kafka_last_sequence = -1;
 static int hf_kafka_last_timestamp = -1;
 static int hf_kafka_current_txn_start_offset = -1;
+static int hf_kafka_incarnation_id = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
@@ -330,6 +326,7 @@ static int ett_kafka_current_voter = -1;
 static int ett_kafka_observer = -1;
 static int ett_kafka_feature = -1;
 static int ett_kafka_producer = -1;
+static int ett_kafka_listener = -1;
 
 static expert_field ei_kafka_request_missing = EI_INIT;
 static expert_field ei_kafka_duplicate_correlation_id = EI_INIT;
@@ -4591,9 +4588,9 @@ dissect_kafka_api_versions_response_supported_feature(tvbuff_t *tvb, kafka_packe
 
     if (kinfo->api_version >= 3) {
 
-        offset = dissect_kafka_string(subtree, hf_kafka_supported_feature_name, tvb, kinfo, offset, &name);
-        offset = dissect_kafka_int16(subtree, hf_kafka_supported_feature_min_version, tvb, kinfo, offset, &min_version);
-        offset = dissect_kafka_int16(subtree, hf_kafka_supported_feature_max_version, tvb, kinfo, offset, &max_version);
+        offset = dissect_kafka_string(subtree, hf_kafka_feature_name, tvb, kinfo, offset, &name);
+        offset = dissect_kafka_int16(subtree, hf_kafka_feature_min_version, tvb, kinfo, offset, &min_version);
+        offset = dissect_kafka_int16(subtree, hf_kafka_feature_max_version, tvb, kinfo, offset, &max_version);
         offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
         if (max_version != min_version) {
@@ -4630,11 +4627,11 @@ dissect_kafka_api_versions_response_finalized_feature(tvbuff_t *tvb, kafka_packe
 
     if (kinfo->api_version >= 3) {
 
-        offset = dissect_kafka_string(subtree, hf_kafka_finalized_feature_name, tvb, kinfo, offset, &name);
+        offset = dissect_kafka_string(subtree, hf_kafka_feature_name, tvb, kinfo, offset, &name);
         // unlike in api version and supported feature, max comes first
         // https://github.com/apache/kafka/blob/3.1/clients/src/main/resources/common/message/ApiVersionsResponse.json
-        offset = dissect_kafka_int16(subtree, hf_kafka_finalized_feature_max_version, tvb, kinfo, offset, &max_version);
-        offset = dissect_kafka_int16(subtree, hf_kafka_finalized_feature_min_version, tvb, kinfo, offset, &min_version);
+        offset = dissect_kafka_int16(subtree, hf_kafka_feature_max_version, tvb, kinfo, offset, &max_version);
+        offset = dissect_kafka_int16(subtree, hf_kafka_feature_min_version, tvb, kinfo, offset, &min_version);
         offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
         if (max_version != min_version) {
@@ -11231,6 +11228,70 @@ dissect_kafka_describe_producers_response(tvbuff_t *tvb, kafka_packet_info_t *ki
     return offset;
 }
 
+/* BROKER_REGISTRATION REQUEST/RESPONSE */
+
+static int
+dissect_kafka_broker_registration_request_listener(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+    offset = dissect_kafka_string(tree, hf_kafka_listener_name, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_broker_host, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int16(tree, hf_kafka_broker_port, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int16(tree, hf_kafka_broker_security_protocol_type, tvb, kinfo, offset, NULL);
+    return offset;
+}
+
+static int
+dissect_kafka_broker_registration_request_feature(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+    offset = dissect_kafka_string(tree, hf_kafka_feature_name, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int16(tree, hf_kafka_feature_min_version, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int16(tree, hf_kafka_feature_max_version, tvb, kinfo, offset, NULL);
+    return offset;
+}
+
+static int
+dissect_kafka_broker_registration_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+    offset = dissect_kafka_int32(tree, hf_kafka_broker_nodeid, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_cluster_id, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_uuid(tree, hf_kafka_incarnation_id, tvb, kinfo, offset);
+
+    offset = dissect_kafka_array_object_v2(
+            tree, tvb, kinfo, 0, -1, offset,
+            ett_kafka_listener, "Listener",
+            &dissect_kafka_broker_registration_request_listener, NULL,
+            NULL);
+
+    offset = dissect_kafka_array_object_v2(
+            tree, tvb, kinfo, 0, -1, offset,
+            ett_kafka_feature, "Feature",
+            &dissect_kafka_broker_registration_request_feature, NULL,
+            NULL);
+
+    offset = dissect_kafka_string(tree, hf_kafka_rack, tvb, kinfo, offset, NULL);
+
+    if (kinfo->flexible_api) {
+        offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    }
+
+    return offset;
+}
+
+static int
+dissect_kafka_broker_registration_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+
+    offset = dissect_kafka_int32(tree, hf_kafka_throttle_time, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_error_ret(tvb, kinfo, tree, offset, NULL);
+    offset = dissect_kafka_int64(tree, hf_kafka_broker_epoch, tvb, kinfo, offset, NULL);
+
+    if (kinfo->flexible_api) {
+        offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    }
+
+    return offset;
+}
+
 /* MAIN */
 
 static wmem_tree_t *
@@ -11557,6 +11618,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_DESCRIBE_PRODUCERS:
                 offset = dissect_kafka_describe_producers_request(tvb, kinfo, kafka_tree, offset);
                 break;
+            case KAFKA_BROKER_REGISTRATION:
+                offset = dissect_kafka_broker_registration_request(tvb, kinfo, kafka_tree, offset);
+                break;
         }
 
     }
@@ -11827,6 +11891,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_DESCRIBE_PRODUCERS:
                 offset = dissect_kafka_describe_producers_response(tvb, kinfo, kafka_tree, offset);
+                break;
+            case KAFKA_BROKER_REGISTRATION:
+                offset = dissect_kafka_broker_registration_response(tvb, kinfo, kafka_tree, offset);
                 break;
         }
 
@@ -12394,18 +12461,18 @@ proto_register_kafka_protocol_fields(int protocol)
               FT_INT16, BASE_DEC, 0, 0,
               "Maximal version which supports api key.", HFILL }
         },
-        { &hf_kafka_supported_feature_name,
-            { "Feature Name", "kafka.supported_feature.name",
+        { &hf_kafka_feature_name,
+            { "Feature Name", "kafka.feature.name",
               FT_STRING, STR_UNICODE, 0, 0,
               "The name of the feature.", HFILL }
         },
-        { &hf_kafka_supported_feature_min_version,
-                { "Min Version", "kafka.supported_feature.min_version",
+        { &hf_kafka_feature_min_version,
+                { "Min Version", "kafka.feature.min_version",
                         FT_INT16, BASE_DEC, 0, 0,
                         "The minimum supported version for the feature.", HFILL }
         },
-        { &hf_kafka_supported_feature_max_version,
-                { "Max Version", "kafka.supported_feature.max_version",
+        { &hf_kafka_feature_max_version,
+                { "Max Version", "kafka.feature.max_version",
                         FT_INT16, BASE_DEC, 0, 0,
                         "The maximum supported version for the feature.", HFILL }
         },
@@ -12414,21 +12481,6 @@ proto_register_kafka_protocol_fields(int protocol)
             FT_INT64, BASE_DEC, 0, 0,
             "The monotonically increasing epoch for the finalized features information. "
             "Valid values are >= 0. A value of -1 is special and represents unknown epoch.", HFILL }
-        },
-        { &hf_kafka_finalized_feature_name,
-                { "Feature Name", "kafka.finalized_feature.name",
-                        FT_STRING, STR_UNICODE, 0, 0,
-                        "The name of the feature.", HFILL }
-        },
-        { &hf_kafka_finalized_feature_min_version,
-                { "Min Version", "kafka.finalized_feature.min_version",
-                        FT_INT16, BASE_DEC, 0, 0,
-                        "The cluster-wide finalized min version level for the feature.", HFILL }
-        },
-        { &hf_kafka_finalized_feature_max_version,
-                { "Max Version", "kafka.finalized_feature.max_version",
-                        FT_INT16, BASE_DEC, 0, 0,
-                        "The cluster-wide finalized max version level for the feature.", HFILL }
         },
         { &hf_kafka_session_timeout,
             { "Session Timeout", "kafka.session_timeout",
@@ -12945,6 +12997,11 @@ proto_register_kafka_protocol_fields(int protocol)
             FT_INT64, BASE_DEC, 0, 0,
             NULL, HFILL }
         },
+        { &hf_kafka_incarnation_id,
+                { "Incarnation ID", "kafka.broker.incarnation_id",
+                        FT_STRING, STR_UNICODE, 0, 0,
+                        NULL, HFILL }
+        },
     };
 
     proto_register_field_array(protocol, hf, array_length(hf));
@@ -13035,6 +13092,7 @@ proto_register_kafka_protocol_subtrees(const int proto _U_)
         &ett_kafka_observer,
         &ett_kafka_feature,
         &ett_kafka_producer,
+        &ett_kafka_listener,
     };
     proto_register_subtree_array(ett, array_length(ett));
 }
