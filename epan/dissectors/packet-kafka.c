@@ -11331,6 +11331,30 @@ dissect_kafka_broker_heartbeat_response(tvbuff_t *tvb, kafka_packet_info_t *kinf
     return offset;
 }
 
+/* BROKER_HEARTBEAT REQUEST/RESPONSE */
+
+static int
+dissect_kafka_unregister_broker_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+    offset = dissect_kafka_int32(tree, hf_kafka_broker_nodeid, tvb, kinfo, offset, NULL);
+    if (kinfo->flexible_api) {
+        offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    }
+    return offset;
+}
+
+static int
+dissect_kafka_unregister_broker_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+    offset = dissect_kafka_int32(tree, hf_kafka_throttle_time, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_error_ret(tvb, kinfo, tree, offset, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, kinfo, offset, NULL);
+    if (kinfo->flexible_api) {
+        offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    }
+    return offset;
+}
+
 /* MAIN */
 
 static wmem_tree_t *
@@ -11663,6 +11687,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_BROKER_HEARTBEAT:
                 offset = dissect_kafka_broker_heartbeat_request(tvb, kinfo, kafka_tree, offset);
                 break;
+            case KAFKA_UNREGISTER_BROKER:
+                offset = dissect_kafka_unregister_broker_request(tvb, kinfo, kafka_tree, offset);
+                break;
         }
 
     }
@@ -11939,6 +11966,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_BROKER_HEARTBEAT:
                 offset = dissect_kafka_broker_heartbeat_response(tvb, kinfo, kafka_tree, offset);
+                break;
+            case KAFKA_UNREGISTER_BROKER:
+                offset = dissect_kafka_unregister_broker_response(tvb, kinfo, kafka_tree, offset);
                 break;
         }
 
