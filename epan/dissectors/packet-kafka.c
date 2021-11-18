@@ -106,6 +106,12 @@ static int hf_kafka_error = -1;
 static int hf_kafka_error_message = -1;
 static int hf_kafka_broker_nodeid = -1;
 static int hf_kafka_broker_epoch = -1;
+static int hf_kafka_broker_metadata_offset = -1;
+static int hf_kafka_broker_want_fence = -1;
+static int hf_kafka_broker_want_shutdown = -1;
+static int hf_kafka_broker_is_caught_up = -1;
+static int hf_kafka_broker_is_fenced = -1;
+static int hf_kafka_broker_should_shutdown = -1;
 static int hf_kafka_leader_and_isr_type = -1;
 static int hf_kafka_broker_host = -1;
 static int hf_kafka_listener_name = -1;
@@ -11292,6 +11298,39 @@ dissect_kafka_broker_registration_response(tvbuff_t *tvb, kafka_packet_info_t *k
     return offset;
 }
 
+/* BROKER_HEARTBEAT REQUEST/RESPONSE */
+
+static int
+dissect_kafka_broker_heartbeat_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+    offset = dissect_kafka_int32(tree, hf_kafka_broker_nodeid, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int64(tree, hf_kafka_broker_epoch, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int64(tree, hf_kafka_broker_metadata_offset, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int8(tree, hf_kafka_broker_want_fence, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int8(tree, hf_kafka_broker_want_shutdown, tvb, kinfo, offset, NULL);
+    if (kinfo->flexible_api) {
+        offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    }
+    return offset;
+}
+
+static int
+dissect_kafka_broker_heartbeat_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+
+    offset = dissect_kafka_int32(tree, hf_kafka_throttle_time, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_error_ret(tvb, kinfo, tree, offset, NULL);
+    offset = dissect_kafka_int8(tree, hf_kafka_broker_is_caught_up, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int8(tree, hf_kafka_broker_is_fenced, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int8(tree, hf_kafka_broker_should_shutdown, tvb, kinfo, offset, NULL);
+
+    if (kinfo->flexible_api) {
+        offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    }
+
+    return offset;
+}
+
 /* MAIN */
 
 static wmem_tree_t *
@@ -11621,6 +11660,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_BROKER_REGISTRATION:
                 offset = dissect_kafka_broker_registration_request(tvb, kinfo, kafka_tree, offset);
                 break;
+            case KAFKA_BROKER_HEARTBEAT:
+                offset = dissect_kafka_broker_heartbeat_request(tvb, kinfo, kafka_tree, offset);
+                break;
         }
 
     }
@@ -11894,6 +11936,9 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_BROKER_REGISTRATION:
                 offset = dissect_kafka_broker_registration_response(tvb, kinfo, kafka_tree, offset);
+                break;
+            case KAFKA_BROKER_HEARTBEAT:
+                offset = dissect_kafka_broker_heartbeat_response(tvb, kinfo, kafka_tree, offset);
                 break;
         }
 
@@ -12274,6 +12319,36 @@ proto_register_kafka_protocol_fields(int protocol)
             { "Broker Epoch", "kafka.broker_epoch",
                FT_INT64, BASE_DEC, 0, 0,
                NULL, HFILL }
+        },
+        { &hf_kafka_broker_metadata_offset,
+          { "Metadata Offset", "kafka.broker_metadata_offset",
+            FT_INT64, BASE_DEC, 0, 0,
+            NULL, HFILL }
+        },
+        { &hf_kafka_broker_want_fence,
+          { "Want Fence", "kafka.broker_want_fence",
+            FT_BOOLEAN, BASE_NONE, 0, 0,
+            NULL, HFILL }
+        },
+        { &hf_kafka_broker_want_shutdown,
+          { "Want Shutdown", "kafka.broker_want_shutdown",
+            FT_BOOLEAN, BASE_NONE, 0, 0,
+            NULL, HFILL }
+        },
+        { &hf_kafka_broker_is_caught_up,
+          { "Is Caught Up", "kafka.broker_is_caught_up",
+            FT_BOOLEAN, BASE_NONE, 0, 0,
+            NULL, HFILL }
+        },
+        { &hf_kafka_broker_is_fenced,
+          { "Is Fenced", "kafka.broker_is_fenced",
+            FT_BOOLEAN, BASE_NONE, 0, 0,
+            NULL, HFILL }
+        },
+        { &hf_kafka_broker_should_shutdown,
+          { "Should Shutdown", "kafka.broker_should_shutdown",
+            FT_BOOLEAN, BASE_NONE, 0, 0,
+            NULL, HFILL }
         },
         { &hf_kafka_leader_and_isr_type,
           { "Type", "kafka.leader_and_isr_type",
