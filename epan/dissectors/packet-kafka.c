@@ -246,6 +246,9 @@ static int hf_kafka_envelope_client_host = -1;
 static int hf_kafka_snapshot_size = -1;
 static int hf_kafka_snapshot_position = -1;
 static int hf_kafka_snapshot_unaligned_records = -1;
+static int hf_kafka_last_sequence = -1;
+static int hf_kafka_last_timestamp = -1;
+static int hf_kafka_current_txn_start_offset = -1;
 
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
@@ -326,6 +329,7 @@ static int ett_kafka_scram_result = -1;
 static int ett_kafka_current_voter = -1;
 static int ett_kafka_observer = -1;
 static int ett_kafka_feature = -1;
+static int ett_kafka_producer = -1;
 
 static expert_field ei_kafka_request_missing = EI_INIT;
 static expert_field ei_kafka_duplicate_correlation_id = EI_INIT;
@@ -1174,14 +1178,165 @@ kafka_check_supported_api_version(packet_info *pinfo, proto_item *ti, kafka_prot
     }
 }
 
+static gboolean
+is_field_supported(
+        kafka_packet_info_t *kinfo,
+        int min_api_version,
+        int max_api_version) {
+    return ( min_api_version < 0 || min_api_version <= kinfo->api_version )
+        && ( max_api_version < 0 || max_api_version >= kinfo->api_version );
+}
+
+
+typedef int(*dissect_kafka_object_v2_fields_cb)(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset);
+
+typedef int(*dissect_kafka_object_v2_tags_cb)(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset,
+        guint64 tag);
+
+/* Tagged fields support (since Kafka 2.4) */
+
 static int
-dissect_kafka_array_elements(proto_tree *tree, tvbuff_t *tvb, kafka_packet_info_t *kinfo, int offset,
-                        int(*func)(tvbuff_t*, kafka_packet_info_t*, proto_tree*, int),
-                        int count)
+dissect_kafka_tagged_field(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset,
+                           dissect_kafka_object_v2_tags_cb func)
+{
+    proto_tree *subtree;
+    proto_item *subti;
+
+    guint field_tag_len;
+    guint field_length_len;
+    guint64 field_tag;
+    guint64 field_length;
+
+    field_tag_len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &field_tag, ENC_VARINT_PROTOBUF);
+    field_length_len = tvb_get_varint(tvb, offset + field_tag_len, FT_VARINT_MAX_LEN, &field_length, ENC_VARINT_PROTOBUF);
+    if (field_tag_len == 0 || field_length_len == 0) {
+        subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                         ett_kafka_unknown_tagged_field,
+                                         &subti, "Invalid Tagged Field");
+        subti = proto_tree_add_uint64(subtree, hf_kafka_unknown_tagged_field_tag, tvb, offset, field_tag_len, field_tag);
+        if (field_tag_len == 0) {
+            expert_add_info(kinfo->pinfo, subti, &ei_kafka_bad_varint);
+        } else {
+            subti = proto_tree_add_item(subtree, hf_kafka_unknown_tagged_field_data, tvb, offset + field_tag_len, 0, ENC_NA);
+            expert_add_info(kinfo->pinfo, subti, &ei_kafka_bad_varint);
+        }
+        proto_item_set_end(subti, tvb, offset + field_tag_len + field_length_len);
+        return offset + field_tag_len + field_length_len;
+    }
+
+    if (!func || !func(tvb_new_subset_length_caplen(tvb, offset + field_tag_len + field_length_len, (guint)field_length, (guint)field_length),
+                       kinfo, tree, 0, field_tag)) {
+        subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                         ett_kafka_unknown_tagged_field,
+                                         &subti, "Unknown Tagged Field");
+        subti = proto_tree_add_uint64(subtree, hf_kafka_unknown_tagged_field_tag, tvb, offset, field_tag_len, field_tag);
+        subti = proto_tree_add_item(subtree, hf_kafka_unknown_tagged_field_data, tvb, offset + field_tag_len + field_length_len, (gint)field_length, ENC_NA);
+        proto_item_set_end(subti, tvb, offset + field_tag_len + field_length_len + (guint)field_length);
+    }
+
+    return offset + field_tag_len + field_length_len + (guint)field_length;
+
+}
+
+static int
+dissect_kafka_tagged_fields(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset,
+                            dissect_kafka_object_v2_tags_cb func)
+{
+    gint64 count;
+    guint len;
+
+    len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &count, ENC_VARINT_PROTOBUF);
+    if (len == 0) {
+        expert_add_info(kinfo->pinfo, tree, &ei_kafka_bad_varint);
+        return offset;
+    }
+    offset += len;
+
+    /*
+     * Contrary to compact arrays, tagged fields store just count
+     * https://cwiki.apache.org/confluence/display/KAFKA/KIP-482%3A+The+Kafka+Protocol+should+Support+Optional+Tagged+Fields
+     */
+    int i;
+    for (i=0; i<count; i++) {
+        offset = dissect_kafka_tagged_field(tvb, kinfo, tree, offset, func);
+        if (offset < 0) {
+            return offset;
+        }
+    }
+
+    return offset;
+}
+
+static int
+dissect_kafka_object(
+        proto_tree *tree,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int min_api_version,
+        int max_api_version,
+        int offset,
+        int ett_index,
+        const char *text,
+        dissect_kafka_object_v2_fields_cb fields_func,
+        dissect_kafka_object_v2_tags_cb tags_func
+        )
+{
+    proto_item *subti;
+    proto_tree *subtree;
+
+    if ( ! is_field_supported(kinfo, min_api_version, max_api_version) ) {
+        return offset;
+    }
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_index,
+                                     &subti, text);
+
+    offset = fields_func(tvb, kinfo, subtree, offset);
+
+    if (kinfo->flexible_api) {
+        offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, tags_func);
+    }
+
+    proto_item_set_end(subti, tvb, offset);
+
+    return offset;
+}
+
+typedef int(*dissect_kafka_array_v1_cb)(
+        tvbuff_t*,
+        kafka_packet_info_t*,
+        proto_tree*,
+        int);
+
+typedef int(*dissect_kafka_array_v2_cb)(
+        proto_tree *tree,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int offset,
+        void *context);
+
+static int
+dissect_kafka_array_elements_v2(
+        proto_tree *tree,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int offset,
+        dissect_kafka_array_v2_cb callback,
+        void *context,
+        int count)
 {
     int i;
     for (i=0; i<count; i++) {
-        offset = func(tvb, kinfo, tree, offset);
+        offset = callback(tree, tvb, kinfo, offset, context);
     }
     return offset;
 }
@@ -1191,11 +1346,23 @@ dissect_kafka_array_elements(proto_tree *tree, tvbuff_t *tvb, kafka_packet_info_
  * the array was considered to be null.
  */
 static int
-dissect_kafka_regular_array(proto_tree *tree, tvbuff_t *tvb, kafka_packet_info_t *kinfo, int offset,
-                    int(*func)(tvbuff_t*, kafka_packet_info_t*, proto_tree*, int),
-                    int *p_count)
+dissect_kafka_regular_array_v2(
+        proto_tree *tree,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int min_api_version,
+        int max_api_version,
+        int offset,
+        dissect_kafka_array_v2_cb callback,
+        void *context,
+        int *p_count)
 {
     gint32 count;
+
+    if ( ! is_field_supported(kinfo, min_api_version, max_api_version) ) {
+        if (p_count) *p_count = -1;
+        return offset;
+    }
 
     count = (gint32) tvb_get_ntohl(tvb, offset);
     offset += 4;
@@ -1205,7 +1372,7 @@ dissect_kafka_regular_array(proto_tree *tree, tvbuff_t *tvb, kafka_packet_info_t
         return offset;
     }
 
-    offset = dissect_kafka_array_elements(tree, tvb, kinfo, offset, func, count);
+    offset = dissect_kafka_array_elements_v2(tree, tvb, kinfo, offset, callback, context, count);
 
     if (p_count != NULL) *p_count = count;
 
@@ -1218,12 +1385,24 @@ dissect_kafka_regular_array(proto_tree *tree, tvbuff_t *tvb, kafka_packet_info_t
  * the array is null.
  */
 static int
-dissect_kafka_compact_array(proto_tree *tree, tvbuff_t *tvb, kafka_packet_info_t *kinfo, int offset,
-                        int(*func)(tvbuff_t*, kafka_packet_info_t*, proto_tree*, int),
-                        int *p_count)
+dissect_kafka_compact_array_v2(
+        proto_tree *tree,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int min_api_version,
+        int max_api_version,
+        int offset,
+        dissect_kafka_array_v2_cb callback,
+        void *context,
+        int *p_count)
 {
     gint64 count;
     gint32 len;
+
+    if ( ! is_field_supported(kinfo, min_api_version, max_api_version) ) {
+        if (p_count) *p_count = -1;
+        return offset;
+    }
 
     len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &count, ENC_VARINT_PROTOBUF);
     if (len == 0 || count > 0x7ffffffL) {
@@ -1236,27 +1415,124 @@ dissect_kafka_compact_array(proto_tree *tree, tvbuff_t *tvb, kafka_packet_info_t
      * Compact arrays store count+1
      * https://cwiki.apache.org/confluence/display/KAFKA/KIP-482%3A+The+Kafka+Protocol+should+Support+Optional+Tagged+Fields
      */
-    offset = dissect_kafka_array_elements(tree, tvb, kinfo, offset, func, (int)count - 1);
+    offset = dissect_kafka_array_elements_v2(tree, tvb, kinfo, offset, callback, context, (gint)count - 1);
 
     if (p_count != NULL) *p_count = (int)count - 1;
 
     return offset;
 }
 
+/**
+ * Improved version of the array dissection. This code extends dissect_kafka_array by:
+ * - adding conditional dissection based on the accepted API version
+ * - flexible rendering without the need to implement each individual item in a separate function
+ */
+static int
+dissect_kafka_array_v2(
+        proto_tree *tree,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int min_api_version,
+        int max_api_version,
+        int offset,
+        dissect_kafka_array_v2_cb callback,
+        void *context,
+        int *p_count)
+{
+    if (kinfo->flexible_api) {
+        return dissect_kafka_compact_array_v2(tree, tvb, kinfo, min_api_version, max_api_version, offset, callback, context, p_count);
+    } else {
+        return dissect_kafka_regular_array_v2(tree, tvb, kinfo, min_api_version, max_api_version, offset, callback, context, p_count);
+    }
+}
+
+typedef struct dissect_kafka_array_object_callback_context {
+    int ett_index;
+    const char *text;
+    dissect_kafka_object_v2_fields_cb fields_callback;
+    dissect_kafka_object_v2_tags_cb tags_callback;
+} dissect_kafka_array_object_callback_context;
+
+static int
+dissect_kafka_array_object_callback(
+        proto_tree *tree,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int offset,
+        void *context) {
+    dissect_kafka_array_object_callback_context *c = context;
+    return dissect_kafka_object(
+            tree, tvb, kinfo, -1, -1,
+            offset,
+            c->ett_index, c->text,
+            c->fields_callback, c->tags_callback);
+}
+
+static int
+dissect_kafka_array_object_v2(
+        proto_tree *tree,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int min_api_version,
+        int max_api_version,
+        int offset,
+        int ett_index,
+        const char *text,
+        dissect_kafka_object_v2_fields_cb fields_callback,
+        dissect_kafka_object_v2_tags_cb tags_callback,
+        int *p_count)
+{
+    dissect_kafka_array_object_callback_context context = {
+            ett_index,
+            text,
+            fields_callback,
+            tags_callback
+    };
+    return dissect_kafka_array_v2(
+            tree,
+            tvb,
+            kinfo,
+            min_api_version,
+            max_api_version,
+            offset,
+            &dissect_kafka_array_object_callback,
+            &context,
+            p_count
+            );
+}
+
+/**
+ * Callback adapting old style array callback to the v2 one.
+ */
+static int
+dissect_kafka_array_callback_wrapper(
+        proto_tree *tree,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int offset,
+        void *context) {
+    return ((dissect_kafka_array_v1_cb)context)(tvb, kinfo, tree, offset);
+}
+
 /*
  * Dissect array. Use 'flexible' flag to select which variant should be used.
  */
 static int
-dissect_kafka_array(proto_tree *tree, tvbuff_t *tvb, kafka_packet_info_t *kinfo, int offset,
-                            int(*func)(tvbuff_t*, kafka_packet_info_t*, proto_tree*, int),
-                            int *p_count)
+dissect_kafka_array(
+        proto_tree *tree,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int offset,
+        dissect_kafka_array_v1_cb callback,
+        int *p_count)
 {
-    if (kinfo->flexible_api) {
-        return dissect_kafka_compact_array(tree, tvb, kinfo, offset, func, p_count);
-    } else {
-        return dissect_kafka_regular_array(tree, tvb, kinfo, offset, func, p_count);
-    }
-
+    return dissect_kafka_array_v2(
+            tree, tvb,
+            kinfo, -1, -1,
+            offset,
+            &dissect_kafka_array_callback_wrapper,
+            callback,
+            p_count);
 }
 
 /* kept for completeness */
@@ -2385,80 +2661,6 @@ dissect_kafka_message_set(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree 
     }
 
     proto_item_set_end(ti, tvb, offset);
-
-    return offset;
-}
-
-/* Tagged fields support (since Kafka 2.4) */
-
-static int
-dissect_kafka_tagged_field(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset,
-                              int(*func)(tvbuff_t*, kafka_packet_info_t*, proto_tree*, int, guint64))
-{
-    proto_tree *subtree;
-    proto_item *subti;
-
-    guint field_tag_len;
-    guint field_length_len;
-    guint64 field_tag;
-    guint64 field_length;
-
-    field_tag_len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &field_tag, ENC_VARINT_PROTOBUF);
-    field_length_len = tvb_get_varint(tvb, offset + field_tag_len, FT_VARINT_MAX_LEN, &field_length, ENC_VARINT_PROTOBUF);
-    if (field_tag_len == 0 || field_length_len == 0) {
-        subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                 ett_kafka_unknown_tagged_field,
-                                 &subti, "Invalid Tagged Field");
-        subti = proto_tree_add_uint64(subtree, hf_kafka_unknown_tagged_field_tag, tvb, offset, field_tag_len, field_tag);
-        if (field_tag_len == 0) {
-            expert_add_info(kinfo->pinfo, subti, &ei_kafka_bad_varint);
-        } else {
-            subti = proto_tree_add_item(subtree, hf_kafka_unknown_tagged_field_data, tvb, offset + field_tag_len, 0, ENC_NA);
-            expert_add_info(kinfo->pinfo, subti, &ei_kafka_bad_varint);
-        }
-        proto_item_set_end(subti, tvb, offset + field_tag_len + field_length_len);
-        return offset + field_tag_len + field_length_len;
-    }
-
-    if (!func || !func(tvb_new_subset_length_caplen(tvb, offset + field_tag_len + field_length_len, (guint)field_length, (guint)field_length),
-                     kinfo, tree, 0, field_tag)) {
-        subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                 ett_kafka_unknown_tagged_field,
-                                 &subti, "Unknown Tagged Field");
-        subti = proto_tree_add_uint64(subtree, hf_kafka_unknown_tagged_field_tag, tvb, offset, field_tag_len, field_tag);
-        subti = proto_tree_add_item(subtree, hf_kafka_unknown_tagged_field_data, tvb, offset + field_tag_len + field_length_len, (gint)field_length, ENC_NA);
-        proto_item_set_end(subti, tvb, offset + field_tag_len + field_length_len + (guint)field_length);
-    }
-
-    return offset + field_tag_len + field_length_len + (guint)field_length;
-
-}
-
-static int
-dissect_kafka_tagged_fields(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset,
-                            int(*func)(tvbuff_t*, kafka_packet_info_t*, proto_tree*, int, guint64))
-{
-    gint64 count;
-    guint len;
-
-    len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &count, ENC_VARINT_PROTOBUF);
-    if (len == 0) {
-        expert_add_info(kinfo->pinfo, tree, &ei_kafka_bad_varint);
-        return offset;
-    }
-    offset += len;
-
-    /*
-     * Contrary to compact arrays, tagged fields store just count
-     * https://cwiki.apache.org/confluence/display/KAFKA/KIP-482%3A+The+Kafka+Protocol+should+Support+Optional+Tagged+Fields
-     */
-    int i;
-    for (i=0; i<count; i++) {
-        offset = dissect_kafka_tagged_field(tvb, kinfo, tree, offset, func);
-        if (offset < 0) {
-            return offset;
-        }
-    }
 
     return offset;
 }
@@ -10892,6 +11094,143 @@ dissect_kafka_fetch_snapshot_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo,
     return offset;
 }
 
+/* DESCRIBE_CLUSTER REQUEST/RESPONSE */
+
+static int
+dissect_kafka_describe_cluster_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+
+    offset = dissect_kafka_int8(tree, hf_kafka_include_cluster_authorized_ops, tvb, kinfo, offset, NULL);
+
+    if (kinfo->flexible_api) {
+        offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    }
+
+    return offset;
+}
+
+static int
+dissect_kafka_describe_cluster_response_broker(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+
+    proto_item *subti;
+    proto_tree *subtree;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
+                                     ett_kafka_broker,
+                                     &subti, "Broker");
+
+    offset = dissect_kafka_int32(subtree, hf_kafka_broker_nodeid, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_broker_host, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int32(subtree, hf_kafka_broker_port, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_rack, tvb, kinfo, offset, NULL);
+
+    if (kinfo->flexible_api) {
+        offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
+    }
+
+    proto_item_set_end(subti, tvb, offset);
+
+    return offset;
+}
+
+static int
+dissect_kafka_describe_cluster_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+
+    offset = dissect_kafka_int32(tree, hf_kafka_throttle_time, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_error_ret(tvb, kinfo, tree, offset, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_cluster_id, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int32(tree, hf_kafka_controller_id, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_describe_cluster_response_broker, NULL);
+    offset = dissect_kafka_int32(tree, hf_kafka_cluster_authorized_ops, tvb, kinfo, offset, NULL);
+
+    if (kinfo->flexible_api) {
+        offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    }
+
+    return offset;
+}
+
+/* DESCRIBE_PRODUCERS REQUEST/RESPONSE */
+
+static int
+dissect_kafka_describe_producers_request_topic(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+    offset = dissect_kafka_string(tree, hf_kafka_topic_name, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_partition_id, NULL);
+    return offset;
+}
+
+static int
+dissect_kafka_describe_producers_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+    offset = dissect_kafka_array_object_v2(
+            tree, tvb, kinfo, 0, -1, offset,
+            ett_kafka_topic, "Topic",
+            &dissect_kafka_describe_producers_request_topic, NULL,
+            NULL);
+    return offset;
+}
+
+static int
+dissect_kafka_describe_producers_response_producer(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+    offset = dissect_kafka_int64(tree, hf_kafka_producer_id, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int32(tree, hf_kafka_producer_epoch, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int32(tree, hf_kafka_last_sequence, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int64(tree, hf_kafka_last_timestamp, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int32(tree, hf_kafka_coordinator_epoch, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int64(tree, hf_kafka_current_txn_start_offset, tvb, kinfo, offset, NULL);
+    return offset;
+}
+
+static int
+dissect_kafka_describe_producers_response_partition(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+    offset = dissect_kafka_error_ret(tvb, kinfo, tree, offset, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_array_object_v2(
+            tree, tvb, kinfo, 0, -1, offset,
+            ett_kafka_producer, "Producer",
+            &dissect_kafka_describe_producers_response_producer, NULL,
+            NULL);
+    return offset;
+}
+
+static int
+dissect_kafka_describe_producers_response_topic(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+
+    offset = dissect_kafka_string(tree, hf_kafka_topic_name, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_array_object_v2(
+            tree, tvb, kinfo, 0, -1, offset,
+            ett_kafka_partition, "Partition",
+            &dissect_kafka_describe_producers_response_partition, NULL,
+            NULL);
+
+    return offset;
+}
+
+static int
+dissect_kafka_describe_producers_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+
+    offset = dissect_kafka_int32(tree, hf_kafka_throttle_time, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_array_object_v2(
+            tree, tvb, kinfo, 0, -1, offset,
+            ett_kafka_topic, "Topic",
+            &dissect_kafka_describe_producers_response_topic, NULL,
+            NULL);
+
+    if (kinfo->flexible_api) {
+        offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    }
+
+    return offset;
+}
+
 /* MAIN */
 
 static wmem_tree_t *
@@ -11212,6 +11551,12 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
             case KAFKA_FETCH_SHAPSHOT:
                 offset = dissect_kafka_fetch_snapshot_request(tvb, kinfo, kafka_tree, offset);
                 break;
+            case KAFKA_DESCRIBE_CLUSTER:
+                offset = dissect_kafka_describe_cluster_request(tvb, kinfo, kafka_tree, offset);
+                break;
+            case KAFKA_DESCRIBE_PRODUCERS:
+                offset = dissect_kafka_describe_producers_request(tvb, kinfo, kafka_tree, offset);
+                break;
         }
 
     }
@@ -11476,6 +11821,12 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
                 break;
             case KAFKA_FETCH_SHAPSHOT:
                 offset = dissect_kafka_fetch_snapshot_response(tvb, kinfo, kafka_tree, offset);
+                break;
+            case KAFKA_DESCRIBE_CLUSTER:
+                offset = dissect_kafka_describe_cluster_response(tvb, kinfo, kafka_tree, offset);
+                break;
+            case KAFKA_DESCRIBE_PRODUCERS:
+                offset = dissect_kafka_describe_producers_response(tvb, kinfo, kafka_tree, offset);
                 break;
         }
 
@@ -12579,8 +12930,21 @@ proto_register_kafka_protocol_fields(int protocol)
             FT_BYTES, BASE_HEX, 0, 0,
             NULL, HFILL }
         },
-
-
+        { &hf_kafka_last_sequence,
+          { "Last Sequence", "kafka.last_sequence",
+            FT_INT32, BASE_DEC, 0, 0,
+            NULL, HFILL }
+        },
+        { &hf_kafka_last_timestamp,
+          { "Last Timestamp", "kafka.last_timestamp",
+            FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, 0, 0,
+            NULL, HFILL }
+        },
+        { &hf_kafka_current_txn_start_offset,
+          { "Current Txn Start Offset", "kafka.current_txn_start_offset",
+            FT_INT64, BASE_DEC, 0, 0,
+            NULL, HFILL }
+        },
     };
 
     proto_register_field_array(protocol, hf, array_length(hf));
@@ -12670,6 +13034,7 @@ proto_register_kafka_protocol_subtrees(const int proto _U_)
         &ett_kafka_current_voter,
         &ett_kafka_observer,
         &ett_kafka_feature,
+        &ett_kafka_producer,
     };
     proto_register_subtree_array(ett, array_length(ett));
 }
