@@ -13,8 +13,12 @@
 brew update
 
 # install some libs needed by Wireshark
-brew install sparkle opus c-ares glib libgcrypt gnutls lua@5.1 cmake python nghttp2 snappy lz4 libxml2 ninja \
+brew install opus c-ares glib libgcrypt gnutls lua@5.1 cmake python nghttp2 snappy lz4 libxml2 ninja \
   libmaxminddb libsmi spandsp brotli minizip zstd libssh libilbc speexdsp gettext qt5 "$@"
+
+# install custom tap of sparkle v1
+brew tap Schm1tz1/homebrew-schm1tz1
+brew cask install schm1tz1/schm1tz1/sparkle
 
 # Uncomment to enable automatic updates using Sparkle
 # brew cask install sparkle
