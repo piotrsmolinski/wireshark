@@ -1391,6 +1391,7 @@ set(DISSECTOR_SRC
 	${CMAKE_CURRENT_SOURCE_DIR}/packet-jxta.c
 	${CMAKE_CURRENT_SOURCE_DIR}/packet-k12.c
 	${CMAKE_CURRENT_SOURCE_DIR}/packet-kadm5.c
+	${CMAKE_CURRENT_SOURCE_DIR}/packet-kafka-common.c
 	${CMAKE_CURRENT_SOURCE_DIR}/packet-kafka.c
 	${CMAKE_CURRENT_SOURCE_DIR}/packet-kdp.c
 	${CMAKE_CURRENT_SOURCE_DIR}/packet-kdsp.c
