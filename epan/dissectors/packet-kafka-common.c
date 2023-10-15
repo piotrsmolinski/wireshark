@@ -21,22 +21,17 @@
 
 #include "packet-kafka-common.h"
 
-static inline gboolean
-is_field_supported(
-        kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version) {
-    return ( min_api_version < 0 || min_api_version <= kinfo->api_version )
-        && ( max_api_version < 0 || max_api_version >= kinfo->api_version );
-}
-
 /*
  * Retrieve null-terminated copy of string from a package.
  * The function wraps the tvb_get_string_enc that if given string is NULL, which is represented as negative length,
  * a substitute string is returned instead of failing.
  */
 gint8*
-kafka_tvb_get_string(wmem_allocator_t *pool, tvbuff_t *tvb, int offset, int length)
+kafka_tvb_get_string(
+        wmem_allocator_t *pool,
+        tvbuff_t *tvb,
+        int offset,
+        int length)
 {
     if (length >= 0) {
         return tvb_get_string_enc(pool, tvb, offset, length, ENC_UTF_8);
@@ -81,108 +76,104 @@ int
 dissect_kafka_int8_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
+        kafka_packet_info_t *kinfo _U_,
         int offset,
         int hf_item,
         gint8 *ret)
 {
-    if ( ! is_field_supported(kinfo, min_api_version, max_api_version) ) {
-        if (ret) *ret = 0;
-        return offset;
-    }
-
     if (ret != NULL) *ret = tvb_get_gint8(tvb, offset);
     proto_tree_add_item(tree, hf_item, tvb, offset, 1, ENC_NA);
     return offset+1;
 }
 
 int
-dissect_kafka_int8(proto_tree *tree, int hf_item, tvbuff_t *tvb, kafka_packet_info_t *kinfo _U_, int offset, gint8 *ret)
+dissect_kafka_int8(
+        proto_tree *tree,
+        int hf_item,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo _U_,
+        int offset,
+        gint8 *ret)
 {
-    return dissect_kafka_int8_v2(tree, tvb, kinfo, -1, -1, offset, hf_item, ret);
+    return dissect_kafka_int8_v2(tree, tvb, kinfo, offset, hf_item, ret);
 }
 
 int
 dissect_kafka_int16_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
+        kafka_packet_info_t *kinfo _U_,
         int offset,
         int hf_item,
         gint16 *ret)
 {
-    if ( ! is_field_supported(kinfo, min_api_version, max_api_version) ) {
-        if (ret) *ret = 0;
-        return offset;
-    }
-
     if (ret != NULL) *ret = tvb_get_gint16(tvb, offset, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_item, tvb, offset, 2, ENC_BIG_ENDIAN);
     return offset+2;
 }
 
 int
-dissect_kafka_int16(proto_tree *tree, int hf_item, tvbuff_t *tvb, kafka_packet_info_t *kinfo _U_, int offset, gint16 *ret)
+dissect_kafka_int16(
+        proto_tree *tree,
+        int hf_item,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int offset,
+        gint16 *ret)
 {
-    return dissect_kafka_int16_v2(tree, tvb, kinfo, -1, -1, offset, hf_item, ret);
+    return dissect_kafka_int16_v2(tree, tvb, kinfo, offset, hf_item, ret);
 }
 
 int
 dissect_kafka_int32_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
+        kafka_packet_info_t *kinfo _U_,
         int offset,
         int hf_item,
         gint32 *ret)
 {
-    if ( ! is_field_supported(kinfo, min_api_version, max_api_version) ) {
-        if (ret) *ret = 0;
-        return offset;
-    }
-
     if (ret != NULL) *ret = tvb_get_gint32(tvb, offset, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_item, tvb, offset, 4, ENC_BIG_ENDIAN);
     return offset+4;
 }
 
 int
-dissect_kafka_int32(proto_tree *tree, int hf_item, tvbuff_t *tvb, kafka_packet_info_t *kinfo, int offset, gint32 *ret)
+dissect_kafka_int32(
+        proto_tree *tree,
+        int hf_item,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int offset,
+        gint32 *ret)
 {
-    return dissect_kafka_int32_v2(tree, tvb, kinfo, -1, -1, offset, hf_item, ret);
+    return dissect_kafka_int32_v2(tree, tvb, kinfo, offset, hf_item, ret);
 }
 
 int
 dissect_kafka_int64_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
+        kafka_packet_info_t *kinfo _U_,
         int offset,
         int hf_item,
         gint64 *ret)
 {
-    if ( ! is_field_supported(kinfo, min_api_version, max_api_version) ) {
-        if (ret) *ret = 0;
-        return offset;
-    }
-
     if (ret != NULL) *ret = tvb_get_gint64(tvb, offset, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_item, tvb, offset, 8, ENC_BIG_ENDIAN);
     return offset + 8;
 }
 
 int
-dissect_kafka_int64(proto_tree *tree, int hf_item, tvbuff_t *tvb, kafka_packet_info_t *kinfo _U_, int offset, gint64 *ret)
+dissect_kafka_int64(
+        proto_tree *tree,
+        int hf_item,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int offset,
+        gint64 *ret)
 {
-    return dissect_kafka_int64_v2(tree, tvb, kinfo, -1, -1, offset, hf_item, ret);
+    return dissect_kafka_int64_v2(tree, tvb, kinfo, offset, hf_item, ret);
 }
 
 int
@@ -236,26 +227,26 @@ int
 dissect_kafka_timestamp_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
+        kafka_packet_info_t *kinfo _U_,
         int offset,
         int hf_item,
         gint64 *ret)
 {
-    if ( ! is_field_supported(kinfo, min_api_version, max_api_version) ) {
-        if (ret) *ret = 0;
-        return offset;
-    }
     if (ret != NULL) *ret = tvb_get_gint64(tvb, offset, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_item, tvb, offset, 8, ENC_TIME_MSECS | ENC_BIG_ENDIAN);
     return offset+8;
 }
 
 int
-dissect_kafka_timestamp(proto_tree *tree, int hf_item, tvbuff_t *tvb, kafka_packet_info_t *kinfo _U_, int offset, gint64 *ret)
+dissect_kafka_timestamp(
+        proto_tree *tree,
+        int hf_item,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int offset,
+        gint64 *ret)
 {
-    return dissect_kafka_timestamp_v2(tree, tvb, kinfo, -1, -1, offset, hf_item, ret);
+    return dissect_kafka_timestamp_v2(tree, tvb, kinfo, offset, hf_item, ret);
 }
 
 /*
@@ -266,21 +257,11 @@ dissect_kafka_regular_string_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         kafka_buffer_ref *p_buffer)
 {
     gint16 length;
-
-    if ( ! is_field_supported(kinfo, min_api_version, max_api_version) ) {
-        if (p_buffer) {
-            p_buffer->offset = -1;
-            p_buffer->length = -1;
-        }
-        return offset;
-    }
 
     length = (gint16) tvb_get_ntohs(tvb, offset);
     if (length < -1) {
@@ -314,22 +295,12 @@ dissect_kafka_compact_string_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         kafka_buffer_ref *p_buffer)
 {
     guint len;
     guint64 length;
-
-    if ( ! is_field_supported(kinfo, min_api_version, max_api_version) ) {
-        if (p_buffer) {
-            p_buffer->offset = -1;
-            p_buffer->length = -1;
-        }
-        return offset;
-    }
 
     len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &length, ENC_VARINT_PROTOBUF);
     if (len == 0) {
@@ -365,16 +336,14 @@ dissect_kafka_string_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         kafka_buffer_ref *p_buffer)
 {
     if (kinfo->flexible_api) {
-        return dissect_kafka_compact_string_v2(tree, tvb, kinfo, min_api_version, max_api_version, offset, hf_item, p_buffer);
+        return dissect_kafka_compact_string_v2(tree, tvb, kinfo, offset, hf_item, p_buffer);
     } else {
-        return dissect_kafka_regular_string_v2(tree, tvb, kinfo, min_api_version, max_api_version, offset, hf_item, p_buffer);
+        return dissect_kafka_regular_string_v2(tree, tvb, kinfo, offset, hf_item, p_buffer);
     }
 }
 
@@ -382,7 +351,7 @@ int
 dissect_kafka_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, kafka_packet_info_t *kinfo, int offset,
                      kafka_buffer_ref *p_buffer)
 {
-    return dissect_kafka_string_v2(tree, tvb, kinfo, -1, -1, offset, hf_item, p_buffer);
+    return dissect_kafka_string_v2(tree, tvb, kinfo, offset, hf_item, p_buffer);
 }
 
 /*
@@ -392,22 +361,12 @@ int
 dissect_kafka_regular_bytes_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
+        kafka_packet_info_t *kinfo _U_,
         int offset,
         int hf_item,
         kafka_buffer_ref *p_buffer)
 {
     gint16 length;
-
-    if ( ! is_field_supported(kinfo, min_api_version, max_api_version) ) {
-        if (p_buffer) {
-            p_buffer->offset = -1;
-            p_buffer->length = -1;
-        }
-        return offset;
-    }
 
     length = (gint16) tvb_get_ntohs(tvb, offset);
     if (length < -1) {
@@ -441,23 +400,13 @@ int
 dissect_kafka_compact_bytes_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
+        kafka_packet_info_t *kinfo _U_,
         int offset,
         int hf_item,
         kafka_buffer_ref *p_buffer)
 {
     guint len;
     guint64 length;
-
-    if ( ! is_field_supported(kinfo, min_api_version, max_api_version) ) {
-        if (p_buffer) {
-            p_buffer->offset = -1;
-            p_buffer->length = -1;
-        }
-        return offset;
-    }
 
     len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &length, ENC_VARINT_PROTOBUF);
 
@@ -496,16 +445,14 @@ dissect_kafka_bytes_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         kafka_buffer_ref *p_buffer)
 {
     if (kinfo->flexible_api) {
-        return dissect_kafka_compact_bytes_v2(tree, tvb, kinfo, min_api_version, max_api_version, offset, hf_item, p_buffer);
+        return dissect_kafka_compact_bytes_v2(tree, tvb, kinfo, offset, hf_item, p_buffer);
     } else {
-        return dissect_kafka_regular_bytes_v2(tree, tvb, kinfo, min_api_version, max_api_version, offset, hf_item, p_buffer);
+        return dissect_kafka_regular_bytes_v2(tree, tvb, kinfo, offset, hf_item, p_buffer);
     }
 }
 
@@ -513,7 +460,7 @@ int
 dissect_kafka_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, kafka_packet_info_t *kinfo, int offset,
                     kafka_buffer_ref *p_buffer)
 {
-    return dissect_kafka_bytes_v2(tree, tvb, kinfo, -1, -1, offset, hf_item, p_buffer);
+    return dissect_kafka_bytes_v2(tree, tvb, kinfo, offset, hf_item, p_buffer);
 }
 
 int
@@ -551,6 +498,9 @@ dissect_kafka_regular_array(
     THROW_MESSAGE_ON(count < -1, ReportedBoundsError, "Invalid array length");
 
     offset += 4;
+
+    proto_item_append_text(tree, " (regular %u items)", (guint)count);
+
     offset = dissect_kafka_array_elements(tree, tvb, kinfo, offset, func, count);
 
     if (p_count != NULL) *p_count = count;
@@ -581,10 +531,13 @@ dissect_kafka_compact_array(
     offset += len;
 
     /*
-     * Compact arrays store count+1
+     * Compact arrays store count+1, 0 is special value indicating null array, 1 means empty array
      * https://cwiki.apache.org/confluence/display/KAFKA/KIP-482%3A+The+Kafka+Protocol+should+Support+Optional+Tagged+Fields
      */
-    offset = dissect_kafka_array_elements(tree, tvb, kinfo, offset, func, (int)count - 1);
+    if (count > 0)
+    {
+        offset = dissect_kafka_array_elements(tree, tvb, kinfo, offset, func, (int)count - 1);
+    }
 
     if (p_count != NULL) *p_count = (int)count - 1;
 
@@ -616,17 +569,10 @@ dissect_kafka_uuid_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         void *ret _U_)
 {
-
-    if ( ! is_field_supported(kinfo, min_api_version, max_api_version) )
-    {
-        return offset;
-    }
 
     proto_tree_add_string(tree, hf_item, tvb, offset, 16, kafka_tvb_get_uuid(kinfo->pinfo->pool, tvb, offset));
     offset += 16;
@@ -643,5 +589,5 @@ dissect_kafka_uuid(
         int offset,
         kafka_buffer_ref *ret)
 {
-    return dissect_kafka_uuid_v2(tree, tvb, kinfo, -1, -1, offset, hf_item, ret);
+    return dissect_kafka_uuid_v2(tree, tvb, kinfo, offset, hf_item, ret);
 }

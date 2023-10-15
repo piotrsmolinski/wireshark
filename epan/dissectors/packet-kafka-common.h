@@ -93,6 +93,17 @@ typedef int(*dissect_kafka_array_element_cb)(
         int offset
 );
 
+#define __KAFKA_SINCE_VERSION__(x) \
+	if (kinfo->api_version >= x) \
+    /* user's code goes here */
+
+#define __KAFKA_UNTIL_VERSION__(x) \
+	if (kinfo->api_version <= x) \
+    /* user's code goes here */
+
+#define __KAFKA_STRING__(x) \
+	kafka_tvb_get_string(kinfo->pinfo->pool, tvb, x.offset, x.length)
+
 WS_DLL_PUBLIC gint8*
 kafka_tvb_get_string(
         wmem_allocator_t *pool,
@@ -111,8 +122,6 @@ dissect_kafka_int8_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         gint8 *ret);
@@ -131,8 +140,6 @@ dissect_kafka_int16_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         gint16 *ret);
@@ -151,8 +158,6 @@ dissect_kafka_int32_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         gint32 *ret);
@@ -171,8 +176,6 @@ dissect_kafka_int64_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         gint64 *ret);
@@ -209,8 +212,6 @@ dissect_kafka_timestamp_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         gint64 *ret);
@@ -229,8 +230,6 @@ dissect_kafka_regular_string_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         kafka_buffer_ref *p_buffer);
@@ -240,8 +239,6 @@ dissect_kafka_compact_string_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         kafka_buffer_ref *p_buffer);
@@ -254,8 +251,6 @@ dissect_kafka_string_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         kafka_buffer_ref *p_buffer);
@@ -274,8 +269,6 @@ dissect_kafka_regular_bytes_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         kafka_buffer_ref *p_buffer);
@@ -285,8 +278,6 @@ dissect_kafka_compact_bytes_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         kafka_buffer_ref *p_buffer);
@@ -299,8 +290,6 @@ dissect_kafka_bytes_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         kafka_buffer_ref *p_buffer);
@@ -319,8 +308,6 @@ dissect_kafka_uuid_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int min_api_version,
-        int max_api_version,
         int offset,
         int hf_item,
         void *ret);
