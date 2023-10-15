@@ -7902,18 +7902,6 @@ dissect_kafka_lookup_match(packet_info *pinfo, guint32 correlation_id)
     return match;
 }
 
-kafka_proto_data_t *
-get_kafka_proto_data(packet_info *pinfo)
-{
-    return p_get_proto_data(wmem_file_scope(), pinfo, proto_kafka, 0);
-}
-
-void
-set_kafka_proto_data(packet_info *pinfo, kafka_proto_data_t *proto_data)
-{
-    p_add_proto_data(wmem_file_scope(), pinfo, proto_kafka, 0, proto_data);
-}
-
 kafka_packet_info_t *
 get_kafka_packet_info(packet_info *pinfo, kafka_proto_data_t *proto_data)
 {
@@ -7960,20 +7948,15 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
         /* in the request PDU the correlation id comes after api_key and api_version */
         pdu_correlation_id = tvb_get_ntohl(tvb, offset+4);
 
-        proto_data = get_kafka_proto_data(pinfo);
-
-        if (!proto_data) {
-            proto_data = wmem_new(wmem_file_scope(), kafka_proto_data_t);
-            proto_data->correlation_id = pdu_correlation_id;
-            proto_data->response_frame = 0;
-            proto_data->request_frame  = pinfo->num;
-            proto_data->api_key        = tvb_get_ntohs(tvb, offset);
-            proto_data->api_version    = tvb_get_ntohs(tvb, offset+2);
-            proto_data->flexible_api   = kafka_is_api_version_flexible(proto_data->api_key, proto_data->api_version);
-            proto_data->client_id      = NULL;
-            dissect_kafka_insert_match(pinfo, pdu_correlation_id, proto_data);
-            set_kafka_proto_data(pinfo, proto_data);
-        }
+        proto_data = wmem_new(wmem_file_scope(), kafka_proto_data_t);
+        proto_data->correlation_id = pdu_correlation_id;
+        proto_data->response_frame = 0;
+        proto_data->request_frame  = pinfo->num;
+        proto_data->api_key        = tvb_get_ntohs(tvb, offset);
+        proto_data->api_version    = tvb_get_ntohs(tvb, offset+2);
+        proto_data->flexible_api   = kafka_is_api_version_flexible(proto_data->api_key, proto_data->api_version);
+        proto_data->client_id      = NULL;
+        dissect_kafka_insert_match(pinfo, pdu_correlation_id, proto_data);
 
         col_add_fstr(pinfo->cinfo, COL_INFO, "Kafka %s v%d Request",
                      kafka_api_key_to_str(proto_data->api_key),
@@ -8199,22 +8182,17 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
         proto_tree_add_item(kafka_tree, hf_kafka_correlation_id, tvb, offset, 4, ENC_BIG_ENDIAN);
         offset += 4;
 
-        proto_data = get_kafka_proto_data(pinfo);
-
-        if (!proto_data) {
-            proto_data = dissect_kafka_lookup_match(pinfo, pdu_correlation_id);
-            if (proto_data == NULL) {
-                col_set_str(pinfo->cinfo, COL_INFO, "Kafka Response (Undecoded, Request Missing)");
-                expert_add_info(pinfo, root_ti, &ei_kafka_request_missing);
-                return tvb_captured_length(tvb);
-            }
-            if (!proto_data->response_frame) {
-                proto_data->response_frame = pinfo->num;
-            } else if (proto_data->response_frame != pinfo->num) {
-                col_add_fstr(pinfo->cinfo, COL_INFO, " (Other response frame in %d)", proto_data->response_frame);
-                expert_add_info(pinfo, root_ti, &ei_kafka_duplicate_correlation_id);
-            }
-            set_kafka_proto_data(pinfo, proto_data);
+        proto_data = dissect_kafka_lookup_match(pinfo, pdu_correlation_id);
+        if (proto_data == NULL) {
+            col_set_str(pinfo->cinfo, COL_INFO, "Kafka Response (Undecoded, Request Missing)");
+            expert_add_info(pinfo, root_ti, &ei_kafka_request_missing);
+            return tvb_captured_length(tvb);
+        }
+        if (!proto_data->response_frame) {
+            proto_data->response_frame = pinfo->num;
+        } else if (proto_data->response_frame != pinfo->num) {
+            col_add_fstr(pinfo->cinfo, COL_INFO, " (Other response frame in %d)", proto_data->response_frame);
+            expert_add_info(pinfo, root_ti, &ei_kafka_duplicate_correlation_id);
         }
 
         col_add_fstr(pinfo->cinfo, COL_INFO, "Kafka %s v%d Response",
