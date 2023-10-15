@@ -96,7 +96,7 @@ static int hf_kafka_consumer_group = -1;
 static int hf_kafka_consumer_group_instance = -1;
 static int hf_kafka_coordinator_key = -1;
 static int hf_kafka_coordinator_type = -1;
-static int hf_kafka_join_reason = -1;
+static int hf_kafka_group_operation_reason = -1;
 static int hf_kafka_group_state = -1;
 static int hf_kafka_offset = -1;
 static int hf_kafka_offset_time = -1;
@@ -396,7 +396,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_HEARTBEAT,                     "Heartbeat",
       0, 4, 4 },
     { KAFKA_LEAVE_GROUP,                   "LeaveGroup",
-      0, 4, 4 },
+      0, 5, 4 },
     { KAFKA_SYNC_GROUP,                    "SyncGroup",
       0, 5, 4 },
     { KAFKA_DESCRIBE_GROUPS,               "DescribeGroups",
@@ -4156,7 +4156,7 @@ dissect_kafka_join_group_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, prot
     proto_item_set_end(subti, tvb, offset);
 
     __KAFKA_SINCE_VERSION__(8)
-    offset = dissect_kafka_string(tree, hf_kafka_join_reason, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_group_operation_reason, tvb, kinfo, offset, NULL);
 
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
@@ -4277,31 +4277,16 @@ dissect_kafka_leave_group_request_member(tvbuff_t *tvb, kafka_packet_info_t *kin
 {
     proto_item *subti;
     proto_tree *subtree;
-    kafka_buffer_ref member;
-    kafka_buffer_ref instance;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_member, &subti, "Member");
 
-    /* member_id */
-    offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, kinfo, offset, &member);
-
-    /* instance_id */
-    offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, kinfo, offset, &instance);
-
+    offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(5)
+    offset = dissect_kafka_string(subtree, hf_kafka_group_operation_reason, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
-
-    if (instance.length >= 0) {
-        proto_item_append_text(subti, " (Member=%s, Group-Instance=%s)",
-                               kafka_tvb_get_string(kinfo->pinfo->pool, tvb, member.offset, member.length),
-                               kafka_tvb_get_string(kinfo->pinfo->pool, tvb, instance.offset, instance.length)
-        );
-    } else {
-        proto_item_append_text(subti, " (Member=%s)",
-                               kafka_tvb_get_string(kinfo->pinfo->pool, tvb, member.offset, member.length)
-        );
-    }
 
     return offset;
 }
@@ -4309,37 +4294,12 @@ dissect_kafka_leave_group_request_member(tvbuff_t *tvb, kafka_packet_info_t *kin
 static int
 dissect_kafka_leave_group_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    kafka_buffer_ref group;
-    kafka_buffer_ref member;
-    proto_item *subti;
-    proto_tree *subtree;
 
-    /* group_id */
-    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, kinfo, offset, &group);
-
-    if (kinfo->api_version >= 0 && kinfo->api_version <= 2) {
-
-        /* member_id */
-        offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, kinfo, offset, &member);
-
-        col_append_fstr(kinfo->pinfo->cinfo, COL_INFO,
-                        " (Group=%s, Member=%s)",
-                        kafka_tvb_get_string(kinfo->pinfo->pool, tvb, group.offset, group.length),
-                        kafka_tvb_get_string(kinfo->pinfo->pool, tvb, member.offset, member.length));
-
-    } else if (kinfo->api_version >= 3) {
-
-        // KIP-345
-        subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_members, &subti, "Members");
-        offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_leave_group_request_member, NULL);
-        proto_item_set_end(subti, tvb, offset);
-
-        col_append_fstr(kinfo->pinfo->cinfo, COL_INFO,
-                        " (Group=%s)",
-                        kafka_tvb_get_string(kinfo->pinfo->pool, tvb, group.offset, group.length));
-
-    }
-
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, kinfo, offset, NULL);
+    __KAFKA_UNTIL_VERSION__(2)
+    offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(3)
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_leave_group_request_member, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
@@ -4350,34 +4310,15 @@ dissect_kafka_leave_group_response_member(tvbuff_t *tvb, kafka_packet_info_t *ki
 {
     proto_item *subti;
     proto_tree *subtree;
-    kafka_buffer_ref member;
-    kafka_buffer_ref instance;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_member, &subti, "Member");
 
-    /* member_id */
-    offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, kinfo, offset, &member);
-
-    /* instance_id */
-    offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, kinfo, offset, &instance);
-
-    /* error_code */
-    offset = dissect_kafka_error(tvb, kinfo, tree, offset);
-
+    offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_string(subtree, hf_kafka_consumer_group_instance, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_error(tvb, kinfo, subtree, offset);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
-
-    if (instance.length >= 0) {
-        proto_item_append_text(subti, " (Member=%s, Group-Instance=%s)",
-                               kafka_tvb_get_string(kinfo->pinfo->pool, tvb, member.offset, member.length),
-                               kafka_tvb_get_string(kinfo->pinfo->pool, tvb, instance.offset, instance.length)
-        );
-    } else {
-        proto_item_append_text(subti, " (Member=%s)",
-                               kafka_tvb_get_string(kinfo->pinfo->pool, tvb, member.offset, member.length)
-        );
-    }
 
     return offset;
 }
@@ -4385,25 +4326,11 @@ dissect_kafka_leave_group_response_member(tvbuff_t *tvb, kafka_packet_info_t *ki
 static int
 dissect_kafka_leave_group_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    proto_item *subti;
-    proto_tree *subtree;
-
-    if (kinfo->api_version >= 1) {
-        offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
-    }
-
-    /* error_code */
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
     offset = dissect_kafka_error(tvb, kinfo, tree, offset);
-
-    if (kinfo->api_version >= 3) {
-
-        // KIP-345
-        subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_members, &subti, "Members");
-        offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_leave_group_response_member, NULL);
-        proto_item_set_end(subti, tvb, offset);
-
-    }
-
+    __KAFKA_SINCE_VERSION__(3)
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_leave_group_response_member, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
@@ -8772,8 +8699,8 @@ proto_register_kafka_protocol_fields(int protocol)
                FT_INT8, BASE_DEC, VALS(kafka_coordinator_types), 0,
                NULL, HFILL }
         },
-        { &hf_kafka_join_reason,
-            { "Join reason", "kafka.join_reason",
+        { &hf_kafka_group_operation_reason,
+            { "Group Operation Reason", "kafka.group_operation_reason",
               FT_STRING, BASE_NONE, 0, 0,
               NULL, HFILL }
         },
