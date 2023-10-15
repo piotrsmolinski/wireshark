@@ -100,6 +100,12 @@ kafka_tvb_get_string(
         int offset,
         int length);
 
+WS_DLL_PUBLIC gint8*
+kafka_tvb_get_uuid(
+        wmem_allocator_t *pool,
+        tvbuff_t *tvb,
+        int offset);
+
 WS_DLL_PUBLIC int
 dissect_kafka_int8_v2(
         proto_tree *tree,
@@ -307,6 +313,26 @@ dissect_kafka_bytes(
         kafka_packet_info_t *kinfo,
         int offset,
         kafka_buffer_ref *p_buffer);
+
+WS_DLL_PUBLIC int
+dissect_kafka_uuid_v2(
+        proto_tree *tree,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int min_api_version,
+        int max_api_version,
+        int offset,
+        int hf_item,
+        void *ret);
+
+WS_DLL_PUBLIC int
+dissect_kafka_uuid(
+        proto_tree *tree,
+        int hf_item,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int offset,
+        kafka_buffer_ref *ret);
 
 WS_DLL_PUBLIC int
 dissect_kafka_array(

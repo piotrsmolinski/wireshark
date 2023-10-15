@@ -45,6 +45,38 @@ kafka_tvb_get_string(wmem_allocator_t *pool, tvbuff_t *tvb, int offset, int leng
     }
 }
 
+static const unsigned char base64_table[65] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+/*
+ * Kafka topic id is in fact UUID, but the tools report it as base64 without padding.
+ */
+gint8*
+kafka_tvb_get_uuid(
+        wmem_allocator_t *pool,
+        tvbuff_t *tvb,
+        int offset)
+{
+    gint8 *result;
+    int i, j;
+
+    // to avoid boundary checking, allocate the padding and use it later as string termination
+    result = wmem_alloc(pool, 24);
+    for (i = 0, j = 0; i < 16; ) {
+        guint32 a = i < 16 ? tvb_get_gint8(tvb, offset + i++) : 0;
+        guint32 b = i < 16 ? tvb_get_gint8(tvb, offset + i++) : 0;
+        guint32 c = i < 16 ? tvb_get_gint8(tvb, offset + i++) : 0;
+        guint32 triple = (a << 16) + (b << 8) + c;
+        result[j++] = base64_table[(triple >> 3 * 6) & 0x3f];
+        result[j++] = base64_table[(triple >> 2 * 6) & 0x3f];
+        result[j++] = base64_table[(triple >> 1 * 6) & 0x3f];
+        result[j++] = base64_table[(triple >> 0 * 6) & 0x3f];
+    }
+    result[22] = 0;
+    result[23] = 0;
+
+    return result;
+}
+
 int
 dissect_kafka_int8_v2(
         proto_tree *tree,
@@ -577,4 +609,39 @@ dissect_kafka_array(
         return dissect_kafka_regular_array(tree, tvb, kinfo, offset, func, p_count);
     }
 
+}
+
+int
+dissect_kafka_uuid_v2(
+        proto_tree *tree,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int min_api_version,
+        int max_api_version,
+        int offset,
+        int hf_item,
+        void *ret _U_)
+{
+
+    if ( ! is_field_supported(kinfo, min_api_version, max_api_version) )
+    {
+        return offset;
+    }
+
+    proto_tree_add_string(tree, hf_item, tvb, offset, 16, kafka_tvb_get_uuid(kinfo->pinfo->pool, tvb, offset));
+    offset += 16;
+
+    return offset;
+}
+
+int
+dissect_kafka_uuid(
+        proto_tree *tree,
+        int hf_item,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int offset,
+        kafka_buffer_ref *ret)
+{
+    return dissect_kafka_uuid_v2(tree, tvb, kinfo, -1, -1, offset, hf_item, ret);
 }
