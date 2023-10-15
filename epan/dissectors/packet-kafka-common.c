@@ -249,6 +249,31 @@ dissect_kafka_timestamp(
     return dissect_kafka_timestamp_v2(tree, tvb, kinfo, offset, hf_item, ret);
 }
 
+int
+dissect_kafka_replica_id(
+        proto_tree *tree,
+        int hf_item,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo _U_,
+        int offset,
+        gint32 *ret)
+{
+    proto_item *subti;
+    gint32 replica_id;
+
+    replica_id = tvb_get_ntohl(tvb, offset);
+    subti = proto_tree_add_item(tree, hf_item, tvb, offset, 4, ENC_BIG_ENDIAN);
+    if (replica_id == -2) {
+        proto_item_append_text(subti, " (debug)");
+    } else if (replica_id == -1) {
+        proto_item_append_text(subti, " (consumer)");
+    }
+    offset += 4;
+
+    if (ret != NULL) *ret = replica_id;
+    return offset;
+}
+
 /*
  * Pre KIP-482 coding. The string is prefixed with 16-bit signed integer. Value -1 means null.
  */

@@ -226,6 +226,15 @@ dissect_kafka_timestamp(
         gint64 *ret);
 
 WS_DLL_PUBLIC int
+dissect_kafka_replica_id(
+        proto_tree *tree,
+        int hf_item,
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        int offset,
+        gint32 *ret);
+
+WS_DLL_PUBLIC int
 dissect_kafka_regular_string_v2(
         proto_tree *tree,
         tvbuff_t *tvb,
