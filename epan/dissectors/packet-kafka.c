@@ -388,7 +388,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_OFFSET_FETCH,                  "OffsetFetch",
       0, 7, 6 },
     { KAFKA_FIND_COORDINATOR,              "FindCoordinator",
-      0, 3, 3 },
+      0, 4, 3 },
     { KAFKA_JOIN_GROUP,                    "JoinGroup",
       0, 7, 6 },
     { KAFKA_HEARTBEAT,                     "Heartbeat",
@@ -3997,25 +3997,28 @@ dissect_kafka_offset_commit_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, 
 /* GROUP_COORDINATOR REQUEST/RESPONSE */
 
 static int
+dissect_kafka_find_coordinator_request_coordinator_key(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset)
+{
+    offset = dissect_kafka_string(tree, hf_kafka_coordinator_key, tvb, kinfo, offset, NULL);
+    return offset;
+}
+
+static int
 dissect_kafka_find_coordinator_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    kafka_buffer_ref group;
 
-    if (kinfo->api_version == 0) {
-        /* group_id */
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, kinfo, offset, &group);
+    __KAFKA_UNTIL_VERSION__(3)
+    offset = dissect_kafka_string(tree, hf_kafka_coordinator_key, tvb, kinfo, offset, NULL);
 
-        col_append_fstr(kinfo->pinfo->cinfo, COL_INFO,
-                        " (Group=%s)",
-                        tvb_get_string_enc(kinfo->pinfo->pool, tvb, group.offset, group.length, ENC_UTF_8));
-    } else {
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_int8_v2(tree, tvb, kinfo, offset, hf_kafka_coordinator_type, NULL);
 
-        offset = dissect_kafka_string(tree, hf_kafka_coordinator_key, tvb, kinfo, offset, NULL);
-
-        proto_tree_add_item(tree, hf_kafka_coordinator_type, tvb, offset, 1, ENC_NA);
-        offset += 1;
-
-    }
+    __KAFKA_SINCE_VERSION__(4)
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_find_coordinator_request_coordinator_key, NULL);
 
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
@@ -4034,25 +4037,26 @@ dissect_kafka_find_coordinator_response_coordinator(tvbuff_t *tvb, kafka_packet_
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_broker, &subti, "Coordinator");
 
-    /* node_id */
-    node_id = (gint32) tvb_get_ntohl(tvb, offset);
-    proto_tree_add_item(subtree, hf_kafka_broker_nodeid, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
-
-    /* host */
+    __KAFKA_SINCE_VERSION__(4)
+    offset = dissect_kafka_string(subtree, hf_kafka_coordinator_key, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int32(subtree, hf_kafka_broker_nodeid, tvb, kinfo, offset, &node_id);
     offset = dissect_kafka_string(subtree, hf_kafka_broker_host, tvb, kinfo, offset, &host);
+    offset = dissect_kafka_int32(subtree, hf_kafka_broker_port, tvb, kinfo, offset, &port);
+    __KAFKA_SINCE_VERSION__(4)
+    offset = dissect_kafka_error(tvb, kinfo, subtree, offset);
+    __KAFKA_SINCE_VERSION__(4)
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, kinfo, offset, NULL);
 
-     /* port */
-    port = (gint32) tvb_get_ntohl(tvb, offset);
-    proto_tree_add_item(subtree, hf_kafka_broker_port, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
+    // unusual, but this function is used both inline (tagged fields go to parent) and as array element
+    __KAFKA_SINCE_VERSION__(4)
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
 
     if (node_id >= 0) {
         proto_item_append_text(subti, " (node %d: %s:%d)",
                                node_id,
-                               tvb_get_string_enc(kinfo->pinfo->pool, tvb, host.offset, host.length, ENC_UTF_8),
+                               __KAFKA_STRING__(host),
                                port);
     } else {
         proto_item_append_text(subti, " (none)");
@@ -4064,19 +4068,21 @@ dissect_kafka_find_coordinator_response_coordinator(tvbuff_t *tvb, kafka_packet_
 static int
 dissect_kafka_find_coordinator_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    if (kinfo->api_version >= 1) {
-        offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
-    }
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
 
-    /* error_code */
+    __KAFKA_UNTIL_VERSION__(3)
     offset = dissect_kafka_error(tvb, kinfo, tree, offset);
 
-    if (kinfo->api_version >= 1) {
-        offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, kinfo, offset, NULL);
-    }
+    __KAFKA_SINCE_VERSION__(1)
+    __KAFKA_UNTIL_VERSION__(3)
+    offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, kinfo, offset, NULL);
 
-    /* coordinator */
+    __KAFKA_UNTIL_VERSION__(3)
     offset = dissect_kafka_find_coordinator_response_coordinator(tvb, kinfo, tree, offset);
+
+    __KAFKA_SINCE_VERSION__(4)
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_find_coordinator_response_coordinator, NULL);
 
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
