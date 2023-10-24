@@ -4074,29 +4074,12 @@ dissect_kafka_join_group_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, pro
 static int
 dissect_kafka_heartbeat_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    kafka_buffer_ref group;
-    kafka_buffer_ref member;
 
-    /* group_id */
-    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, kinfo, offset, &group);
-
-    /* group_generation_id */
-    proto_tree_add_item(tree, hf_kafka_generation_id, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
-
-    /* member_id */
-    offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, kinfo, offset, &member);
-
-    /* instance_id */
-    if (kinfo->api_version >= 3) {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, kinfo, offset, NULL);
-    }
-
-    col_append_fstr(kinfo->pinfo->cinfo, COL_INFO,
-                    " (Group=%s, Member=%s)",
-                    kafka_tvb_get_string(kinfo->pinfo->pool, tvb, group.offset, group.length),
-                    kafka_tvb_get_string(kinfo->pinfo->pool, tvb, member.offset, member.length));
-
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int32(tree, hf_kafka_generation_id, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(3)
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
@@ -4105,13 +4088,9 @@ dissect_kafka_heartbeat_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto
 static int
 dissect_kafka_heartbeat_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    if (kinfo->api_version >= 1) {
-        offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
-    }
-
-    /* error_code */
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
     offset = dissect_kafka_error(tvb, kinfo, tree, offset);
-
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
