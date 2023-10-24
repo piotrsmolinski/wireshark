@@ -480,7 +480,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_CREATE_TOPICS,                 "CreateTopics",
       0, 7, 5 },
     { KAFKA_DELETE_TOPICS,                 "DeleteTopics",
-      0, 4, 4 },
+      0, 6, 4 },
     { KAFKA_DELETE_RECORDS,                "DeleteRecords",
       0, 1, -1 },
     { KAFKA_INIT_PRODUCER_ID,              "InitProducerId",
@@ -4674,6 +4674,23 @@ dissect_kafka_create_topics_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, 
 static int
 dissect_kafka_delete_topics_request_topic(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
+    proto_item *subti;
+    proto_tree *subtree;
+
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
+
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_uuid(subtree, hf_kafka_topic_id, tvb, kinfo, offset,  NULL);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
+
+    proto_item_set_end(subti, tvb, offset);
+
+    return offset;
+}
+
+static int
+dissect_kafka_delete_topics_request_topic_name(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
     offset = dissect_kafka_string(tree, hf_kafka_topic_name, tvb, kinfo, offset, NULL);
     return offset;
 }
@@ -4682,63 +4699,46 @@ static int
 dissect_kafka_delete_topics_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
 
+    __KAFKA_SINCE_VERSION__(6)
     offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_delete_topics_request_topic, NULL);
-
-    /* timeout */
-    proto_tree_add_item(tree, hf_kafka_timeout, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
-
+    __KAFKA_UNTIL_VERSION__(5)
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_delete_topics_request_topic_name, NULL);
+    offset = dissect_kafka_int32(tree, hf_kafka_timeout, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
 }
 
 static int
-dissect_kafka_delete_topics_response_topic_error_code(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree,
+dissect_kafka_delete_topics_response_topic(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree,
                                                       int offset)
 {
     proto_item *subti;
     proto_tree *subtree;
-    kafka_buffer_ref topic;
-    kafka_error_t error;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_topic,
-                                     &subti, "Topic Error Code");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
 
-    /* topic */
-    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, kinfo, offset, &topic);
-
-    /* error_code */
-    offset = dissect_kafka_error_ret(tvb, kinfo, subtree, offset, &error);
-
+    offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(6)
+    offset = dissect_kafka_uuid(subtree, hf_kafka_topic_id, tvb, kinfo, offset,  NULL);
+    offset = dissect_kafka_error_ret(tvb, kinfo, subtree, offset, NULL);
+    __KAFKA_SINCE_VERSION__(5)
+    offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
-    proto_item_append_text(subti, " (Topic=%s, Error=%s)",
-                           kafka_tvb_get_string(kinfo->pinfo->pool, tvb, topic.offset, topic.length),
-                           kafka_error_to_str(error));
 
     return offset;
+
 }
 
 static int
 dissect_kafka_delete_topics_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    proto_item *subti;
-    proto_tree *subtree;
 
-    if (kinfo->api_version >= 3) {
-        offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
-    }
-
-    /* [topic_error_code] */
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_topics,
-                                     &subti, "Topic Error Codes");
-    offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_delete_topics_response_topic_error_code, NULL);
-    proto_item_set_end(subti, tvb, offset);
-
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_int32(tree, hf_kafka_throttle_time, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_delete_topics_response_topic, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
