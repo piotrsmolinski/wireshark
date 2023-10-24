@@ -8741,10 +8741,8 @@ dissect_kafka_describe_producers_request_topic(tvbuff_t *tvb, kafka_packet_info_
     proto_tree *subtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
-
     offset = dissect_kafka_string(subtree, hf_kafka_topic_name, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_partition_id, NULL);
-
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -8770,7 +8768,7 @@ dissect_kafka_describe_producers_response_producer(tvbuff_t *tvb, kafka_packet_i
     offset = dissect_kafka_int64(subtree, hf_kafka_producer_id, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_int32(subtree, hf_kafka_producer_epoch, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_int32(subtree, hf_kafka_last_sequence, tvb, kinfo, offset, NULL);
-    offset = dissect_kafka_int64(subtree, hf_kafka_last_timestamp, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_timestamp(subtree, hf_kafka_last_timestamp, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_int32(subtree, hf_kafka_coordinator_epoch, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_int64(subtree, hf_kafka_current_txn_start_offset, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
@@ -8786,6 +8784,7 @@ dissect_kafka_describe_producers_response_partition(tvbuff_t *tvb, kafka_packet_
     proto_tree *subtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_partition, &subti, "Partition");
+    offset = dissect_kafka_int32(subtree, hf_kafka_partition_id, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_error_ret(tvb, kinfo, subtree, offset, NULL);
     offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_describe_producers_response_producer, NULL);
