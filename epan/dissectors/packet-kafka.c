@@ -212,6 +212,8 @@ static int hf_kafka_token_renew_time = -1;
 static int hf_kafka_token_expiry_time = -1;
 static int hf_kafka_token_principal_type = -1;
 static int hf_kafka_token_principal_name = -1;
+static int hf_kafka_requester_principal_type = -1;
+static int hf_kafka_requester_principal_name = -1;
 static int hf_kafka_token_issue_timestamp = -1;
 static int hf_kafka_token_expiry_timestamp = -1;
 static int hf_kafka_token_max_timestamp = -1;
@@ -516,7 +518,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_CREATE_PARTITIONS,             "CreatePartitions",
       0, 2, 2 },
     { KAFKA_CREATE_DELEGATION_TOKEN,       "CreateDelegationToken",
-      0, 2, 2 },
+      0, 3, 2 },
     { KAFKA_RENEW_DELEGATION_TOKEN,        "RenewDelegationToken",
       0, 2, 2 },
     { KAFKA_EXPIRE_DELEGATION_TOKEN,       "ExpireDelegationToken",
@@ -6436,9 +6438,7 @@ dissect_kafka_create_delegation_token_request_renewer(tvbuff_t *tvb, kafka_packe
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_renewer, &subti, "Renewer");
 
     offset = dissect_kafka_string(subtree, hf_kafka_token_principal_type, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_string(subtree, hf_kafka_token_principal_name, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -6449,19 +6449,13 @@ dissect_kafka_create_delegation_token_request_renewer(tvbuff_t *tvb, kafka_packe
 static int
 dissect_kafka_create_delegation_token_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    proto_item *subti;
-    proto_tree *subtree;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_renewers,
-                                     &subti, "Renewers");
-
-    offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_create_delegation_token_request_renewer, NULL);
-
-    proto_item_set_end(subti, tvb, offset);
-
+    __KAFKA_SINCE_VERSION__(3)
+    offset = dissect_kafka_string(tree, hf_kafka_requester_principal_type, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(3)
+    offset = dissect_kafka_string(tree, hf_kafka_requester_principal_name, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_create_delegation_token_request_renewer, NULL);
     offset = dissect_kafka_int64(tree, hf_kafka_token_max_life_time, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
@@ -6471,23 +6465,18 @@ static int
 dissect_kafka_create_delegation_token_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
     offset = dissect_kafka_error(tvb, kinfo, tree, offset);
-
     offset = dissect_kafka_string(tree, hf_kafka_token_principal_type, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_string(tree, hf_kafka_token_principal_name, tvb, kinfo, offset, NULL);
-
+    __KAFKA_SINCE_VERSION__(3)
+    offset = dissect_kafka_string(tree, hf_kafka_requester_principal_type, tvb, kinfo, offset, NULL); // requester
+    __KAFKA_SINCE_VERSION__(3)
+    offset = dissect_kafka_string(tree, hf_kafka_requester_principal_name, tvb, kinfo, offset, NULL); // requester
     offset = dissect_kafka_timestamp(tree, hf_kafka_token_issue_timestamp, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_timestamp(tree, hf_kafka_token_expiry_timestamp, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_timestamp(tree, hf_kafka_token_max_timestamp, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_string(tree, hf_kafka_token_id, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_bytes(tree, hf_kafka_token_hmac, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
-
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
@@ -10619,6 +10608,16 @@ proto_register_kafka_protocol_fields(int protocol)
         },
         { &hf_kafka_token_principal_name,
             { "Principal Name", "kafka.principal_name",
+                FT_STRING, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_requester_principal_type,
+            { "Requester Principal Type", "kafka.requester_principal_type",
+                FT_STRING, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_requester_principal_name,
+            { "Requester Principal Name", "kafka.requester_principal_name",
                 FT_STRING, BASE_NONE, 0, 0,
                 NULL, HFILL }
         },
