@@ -512,7 +512,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_DESCRIBE_CONFIGS,              "DescribeConfigs",
       0, 4, 4 },
     { KAFKA_ALTER_CONFIGS,                 "AlterConfigs",
-      0, 1, -1 },
+      0, 2, 2 },
     { KAFKA_ALTER_REPLICA_LOG_DIRS,        "AlterReplicaLogDirs",
       0, 1, -1 },
     { KAFKA_DESCRIBE_LOG_DIRS,             "DescribeLogDirs",
@@ -5798,7 +5798,7 @@ dissect_kafka_describe_configs_response(tvbuff_t *tvb, kafka_packet_info_t *kinf
 /* ALTER_CONFIGS REQUEST/RESPONSE */
 
 static int
-dissect_kafka_alter_config_request_entry(tvbuff_t *tvb, kafka_packet_info_t *kinfo _U_, proto_tree *tree, int offset)
+dissect_kafka_alter_config_request_entry(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
     proto_item *subti;
     proto_tree *subtree;
@@ -5807,6 +5807,7 @@ dissect_kafka_alter_config_request_entry(tvbuff_t *tvb, kafka_packet_info_t *kin
 
     offset = dissect_kafka_string(subtree, hf_kafka_config_key, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_string(subtree, hf_kafka_config_value, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -5814,21 +5815,17 @@ dissect_kafka_alter_config_request_entry(tvbuff_t *tvb, kafka_packet_info_t *kin
 }
 
 static int
-dissect_kafka_alter_config_request_resource(tvbuff_t *tvb, kafka_packet_info_t *kinfo _U_, proto_tree *tree, int offset)
+dissect_kafka_alter_config_request_resource(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    proto_item *subti, *subsubti;
-    proto_tree *subtree, *subsubtree;
+    proto_item *subti;
+    proto_tree *subtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_resource, &subti, "Resource");
 
-    proto_tree_add_item(subtree, hf_kafka_config_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
-
+    offset = dissect_kafka_int8(tree, hf_kafka_config_resource_type, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, kinfo, offset, NULL);
-
-    subsubtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_config_entries, &subsubti, "Entries");
-
-    offset = dissect_kafka_array(subsubtree, tvb, kinfo, offset, &dissect_kafka_alter_config_request_entry, NULL);
+    offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_alter_config_request_entry, NULL);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -5838,24 +5835,16 @@ dissect_kafka_alter_config_request_resource(tvbuff_t *tvb, kafka_packet_info_t *
 static int
 dissect_kafka_alter_configs_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    proto_item *subti;
-    proto_tree *subtree;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_resources,
-                                     &subti, "Resources");
-    offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_alter_config_request_resource, NULL);
-
-    proto_tree_add_item(subtree, hf_kafka_validate_only, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
-
-    proto_item_set_end(subti, tvb, offset);
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_alter_config_request_resource, NULL);
+    offset = dissect_kafka_int8(tree, hf_kafka_validate_only, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
 }
 
 static int
-dissect_kafka_alter_configs_response_resource(tvbuff_t *tvb, kafka_packet_info_t *kinfo _U_, proto_tree *tree, int offset)
+dissect_kafka_alter_configs_response_resource(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
     proto_item *subti;
     proto_tree *subtree;
@@ -5863,13 +5852,10 @@ dissect_kafka_alter_configs_response_resource(tvbuff_t *tvb, kafka_packet_info_t
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_resource, &subti, "Resource");
 
     offset = dissect_kafka_error(tvb, kinfo, subtree, offset);
-
     offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, kinfo, offset, NULL);
-
-    proto_tree_add_item(subtree, hf_kafka_config_resource_type, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset += 1;
-
+    offset = dissect_kafka_int8(subtree, hf_kafka_config_resource_type, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_string(subtree, hf_kafka_config_resource_name, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
 
@@ -5879,17 +5865,10 @@ dissect_kafka_alter_configs_response_resource(tvbuff_t *tvb, kafka_packet_info_t
 static int
 dissect_kafka_alter_configs_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    proto_item *subti;
-    proto_tree *subtree;
 
     offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
-
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_resources,
-                                     &subti, "Resources");
-    offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_alter_configs_response_resource, NULL);
-
-    proto_item_set_end(subti, tvb, offset);
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_alter_configs_response_resource, NULL);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
 }
