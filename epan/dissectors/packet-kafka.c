@@ -1706,8 +1706,7 @@ dissect_kafka_message_old(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree 
     offset = dissect_kafka_int8(subtree, hf_kafka_message_timestamp_type, tvb, kinfo, offset, NULL);
 
     if (magic_byte == 1) {
-        proto_tree_add_item(subtree, hf_kafka_message_timestamp, tvb, offset, 8, ENC_TIME_MSECS|ENC_BIG_ENDIAN);
-        offset += 8;
+        offset = dissect_kafka_timestamp(subtree, hf_kafka_message_timestamp, tvb, kinfo, offset, NULL);
     }
 
     offset = dissect_kafka_regular_bytes_v2(subtree, tvb, kinfo, offset, hf_kafka_message_key, NULL);
@@ -1801,8 +1800,8 @@ dissect_kafka_message_new(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree 
 
     offset = dissect_kafka_int32(subtree, hf_kafka_batch_last_offset_delta, tvb, kinfo, offset, NULL);
 
-    offset = dissect_kafka_int64(subtree, hf_kafka_batch_first_timestamp, tvb, kinfo, offset, &first_timestamp);
-    offset = dissect_kafka_int64(subtree, hf_kafka_batch_last_timestamp, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_timestamp(subtree, hf_kafka_batch_first_timestamp, tvb, kinfo, offset, &first_timestamp);
+    offset = dissect_kafka_timestamp(subtree, hf_kafka_batch_last_timestamp, tvb, kinfo, offset, NULL);
 
     offset = dissect_kafka_int64(subtree, hf_kafka_producer_id, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_int16(subtree, hf_kafka_producer_epoch, tvb, kinfo, offset, NULL);
