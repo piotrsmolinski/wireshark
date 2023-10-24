@@ -850,10 +850,14 @@ static const value_string acl_permission_types[] = {
     { 0, NULL }
 };
 
+/*
+ * https://github.com/apache/kafka/blob/3.6.0/clients/src/main/java/org/apache/kafka/common/config/ConfigResource.java#L35-L55
+ */
 static const value_string config_resource_types[] = {
     { 0, "Unknown" },
     { 2, "Topic" },
     { 4, "Broker" },
+    { 8, "Broker Logger" },
     { 0, NULL }
 };
 
