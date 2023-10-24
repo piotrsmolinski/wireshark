@@ -144,6 +144,8 @@ static int hf_kafka_skip_assignments = -1;
 static int hf_kafka_leader_epoch = -1;
 static int hf_kafka_current_leader_epoch = -1;
 static int hf_kafka_end_offset = -1;
+static int hf_kafka_last_fetch_timestamp = -1;
+static int hf_kafka_last_caught_up_timestamp = -1;
 static int hf_kafka_is_internal = -1;
 static int hf_kafka_isolation_level = -1;
 static int hf_kafka_min_bytes = -1;
@@ -558,7 +560,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_END_QUORUM_EPOCH,               "EndQuorumEpoch",
       0, 0, -1 },
     { KAFKA_DESCRIBE_QUORUM,                "DescribeQuorum",
-      0, 0, 0 },
+      0, 1, 0 },
     { KAFKA_ALTER_PARTITION,                "AlterPartition",
       0, 3, 0 },
     { KAFKA_UPDATE_FEATURES,                "UpdateFeatures",
@@ -7748,6 +7750,10 @@ dissect_kafka_describe_quorum_response_current_voter(tvbuff_t *tvb, kafka_packet
 
     offset = dissect_kafka_int32(subtree, hf_kafka_replica, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_int64(subtree, hf_kafka_end_offset, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_timestamp(subtree, hf_kafka_last_fetch_timestamp, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_timestamp(subtree, hf_kafka_last_caught_up_timestamp, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -7766,6 +7772,10 @@ dissect_kafka_describe_quorum_response_observer(tvbuff_t *tvb, kafka_packet_info
 
     offset = dissect_kafka_int32(subtree, hf_kafka_replica, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_int64(subtree, hf_kafka_end_offset, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_timestamp(subtree, hf_kafka_last_fetch_timestamp, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_timestamp(subtree, hf_kafka_last_caught_up_timestamp, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -9885,6 +9895,16 @@ proto_register_kafka_protocol_fields(int protocol)
         { &hf_kafka_end_offset,
             { "End Offset", "kafka.end_offset",
               FT_INT64, BASE_DEC, 0, 0,
+              NULL, HFILL }
+        },
+        { &hf_kafka_last_fetch_timestamp,
+            { "Last Fetch Timestamp", "kafka.last_fetch_timestamp",
+              FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0,
+              NULL, HFILL }
+        },
+        { &hf_kafka_last_caught_up_timestamp,
+            { "Last Caught Up Timestamp", "kafka.last_caught_up_timestamp",
+              FT_ABSOLUTE_TIME, ABSOLUTE_TIME_UTC, NULL, 0,
               NULL, HFILL }
         },
         { &hf_kafka_is_internal,
