@@ -4845,20 +4845,11 @@ dissect_kafka_init_producer_id_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo
 {
 
     offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, kinfo, offset, NULL);
-
-    proto_tree_add_item(tree, hf_kafka_transaction_timeout, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
-
-    if (kinfo->api_version >= 3) {
-        proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
-        offset += 8;
-    }
-
-    if (kinfo->api_version >= 3) {
-        proto_tree_add_item(tree, hf_kafka_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
-        offset += 2;
-    }
-
+    offset = dissect_kafka_int32(tree, hf_kafka_transaction_timeout, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(3)
+    offset = dissect_kafka_int64(tree, hf_kafka_producer_id, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(3)
+    offset = dissect_kafka_int16(tree, hf_kafka_producer_epoch, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
@@ -4869,15 +4860,9 @@ static int
 dissect_kafka_init_producer_id_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
     offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
-
     offset = dissect_kafka_error(tvb, kinfo, tree, offset);
-
-    proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
-    offset += 8;
-
-    proto_tree_add_item(tree, hf_kafka_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
-    offset += 2;
-
+    offset = dissect_kafka_int64(tree, hf_kafka_producer_id, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int16(tree, hf_kafka_producer_epoch, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
