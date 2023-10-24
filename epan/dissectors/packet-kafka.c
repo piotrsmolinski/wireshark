@@ -500,11 +500,11 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_TXN_OFFSET_COMMIT,             "TxnOffsetCommit",
       0, 3, 3 },
     { KAFKA_DESCRIBE_ACLS,                 "DescribeAcls",
-      0, 2, 2 },
+      0, 3, 2 },
     { KAFKA_CREATE_ACLS,                   "CreateAcls",
-      0, 2, 2 },
+      0, 3, 2 },
     { KAFKA_DELETE_ACLS,                   "DeleteAcls",
-      0, 2, 2 },
+      0, 3, 2 },
     { KAFKA_DESCRIBE_CONFIGS,              "DescribeConfigs",
       0, 2, -1 },
     { KAFKA_ALTER_CONFIGS,                 "AlterConfigs",
@@ -803,6 +803,7 @@ static const value_string acl_resource_types[] = {
     { 4, "Cluster" },
     { 5, "TransactionalId" },
     { 6, "DelegationToken" },
+    { 7, "User" },
     { 0, NULL }
 };
 
@@ -5434,69 +5435,48 @@ dissect_kafka_describe_acls_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, p
 {
 
     offset = dissect_kafka_int8(tree, hf_kafka_acl_resource_type, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_string(tree, hf_kafka_acl_resource_name, tvb, kinfo, offset, NULL);
-
-    if (kinfo->api_version >= 1) {
-        offset = dissect_kafka_int8(tree, hf_kafka_acl_resource_pattern_type, tvb, kinfo, offset, NULL);
-    }
-
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_int8(tree, hf_kafka_acl_resource_pattern_type, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_string(tree, hf_kafka_acl_principal, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_string(tree, hf_kafka_acl_host, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_int8(tree, hf_kafka_acl_operation, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_int8(tree, hf_kafka_acl_permission_type, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
 }
 
 static int
-dissect_kafka_describe_acls_response_resource_acl(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree,
-                                                   int offset)
+dissect_kafka_describe_acls_response_resource_acl(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
     proto_item *subti;
     proto_tree *subtree;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_acl, &subti, "ACL");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_acl, &subti, "ACL Entry");
 
     offset = dissect_kafka_string(subtree, hf_kafka_acl_principal, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_string(subtree, hf_kafka_acl_host, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_int8(subtree, hf_kafka_acl_operation, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_int8(subtree, hf_kafka_acl_permission_type, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     return offset;
 }
 
 static int
-dissect_kafka_describe_acls_response_resource(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree,
-                                               int offset)
+dissect_kafka_describe_acls_response_resource(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    proto_item *subti, *subsubti;
-    proto_tree *subtree, *subsubtree;
+    proto_item *subti;
+    proto_tree *subtree;
 
     subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_resource, &subti, "Resource");
 
     offset = dissect_kafka_int8(subtree, hf_kafka_acl_resource_type, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_string(subtree, hf_kafka_acl_resource_name, tvb, kinfo, offset, NULL);
-
-    if (kinfo->api_version >= 1) {
-        offset = dissect_kafka_int8(subtree, hf_kafka_acl_resource_pattern_type, tvb, kinfo, offset, NULL);
-    }
-
-    subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1, ett_kafka_acls, &subsubti, "ACLs");
-    offset = dissect_kafka_array(subsubtree, tvb, kinfo, offset, &dissect_kafka_describe_acls_response_resource_acl, NULL);
-    proto_item_set_end(subsubti, tvb, offset);
-
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_int8(subtree, hf_kafka_acl_resource_pattern_type, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_describe_acls_response_resource_acl, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -5504,27 +5484,15 @@ dissect_kafka_describe_acls_response_resource(tvbuff_t *tvb, kafka_packet_info_t
     return offset;
 }
 
-
 static int
 dissect_kafka_describe_acls_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    proto_item *subti;
-    proto_tree *subtree;
 
     offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
-
     offset = dissect_kafka_error(tvb, kinfo, tree, offset);
-
     offset = dissect_kafka_string(tree, hf_kafka_error_message, tvb, kinfo, offset, NULL);
-
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_resources,
-                                     &subti, "Resources");
-    offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_describe_acls_response_resource, NULL);
-    proto_item_set_end(subti, tvb, offset);
-
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_describe_acls_response_resource, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
-
 
     return offset;
 }
@@ -5532,30 +5500,21 @@ dissect_kafka_describe_acls_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, 
 /* CREATE_ACLS REQUEST/RESPONSE */
 
 static int
-dissect_kafka_create_acls_request_creation(tvbuff_t *tvb, kafka_packet_info_t *kinfo _U_, proto_tree *tree,
-                                                  int offset)
+dissect_kafka_create_acls_request_creation(tvbuff_t *tvb, kafka_packet_info_t *kinfo _U_, proto_tree *tree, int offset)
 {
     proto_item *subti;
     proto_tree *subtree;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_acl_creation, &subti, "Creation");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_acl_creation, &subti, "ACL Entry");
 
     offset = dissect_kafka_int8(subtree, hf_kafka_acl_resource_type, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_string(subtree, hf_kafka_acl_resource_name, tvb, kinfo, offset, NULL);
-
-    if (kinfo->api_version >= 1) {
-        offset = dissect_kafka_int8(subtree, hf_kafka_acl_resource_pattern_type, tvb, kinfo, offset, NULL);
-    }
-
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_int8(subtree, hf_kafka_acl_resource_pattern_type, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_string(subtree, hf_kafka_acl_principal, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_string(subtree, hf_kafka_acl_host, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_int8(subtree, hf_kafka_acl_operation, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_int8(subtree, hf_kafka_acl_permission_type, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -5566,35 +5525,23 @@ dissect_kafka_create_acls_request_creation(tvbuff_t *tvb, kafka_packet_info_t *k
 static int
 dissect_kafka_create_acls_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    proto_item *subti;
-    proto_tree *subtree;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_acl_creations,
-                                     &subti, "Creations");
-    offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_create_acls_request_creation, NULL);
-    proto_item_set_end(subti, tvb, offset);
-
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_create_acls_request_creation, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
 }
 
 static int
-dissect_kafka_create_acls_response_creation(tvbuff_t *tvb, kafka_packet_info_t *kinfo _U_, proto_tree *tree,
-                                                   int offset)
+dissect_kafka_create_acls_response_creation(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
     proto_item *subti;
     proto_tree *subtree;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_acl_creation, &subti, "Creation");
-
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_acl_creation, &subti, "ACL Entry");
     offset = dissect_kafka_error(tvb, kinfo, subtree, offset);
-
     offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
-
     proto_item_set_end(subti, tvb, offset);
 
     return offset;
@@ -5603,17 +5550,9 @@ dissect_kafka_create_acls_response_creation(tvbuff_t *tvb, kafka_packet_info_t *
 static int
 dissect_kafka_create_acls_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    proto_item *subti;
-    proto_tree *subtree;
 
     offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
-
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_acl_creations,
-                                     &subti, "Creations");
-    offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_create_acls_response_creation, NULL);
-    proto_item_set_end(subti, tvb, offset);
-
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_create_acls_response_creation, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
@@ -5627,24 +5566,16 @@ dissect_kafka_delete_acls_request_filter(tvbuff_t *tvb, kafka_packet_info_t *kin
     proto_item *subti;
     proto_tree *subtree;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_acl_filter, &subti, "Filter");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_acl_filter, &subti, "ACL Filter");
 
     offset = dissect_kafka_int8(subtree, hf_kafka_acl_resource_type, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_string(subtree, hf_kafka_acl_resource_name, tvb, kinfo, offset, NULL);
-
-    if (kinfo->api_version >= 1) {
-        offset = dissect_kafka_int8(subtree, hf_kafka_acl_resource_pattern_type, tvb, kinfo, offset, NULL);
-    }
-
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_int8(subtree, hf_kafka_acl_resource_pattern_type, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_string(subtree, hf_kafka_acl_principal, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_string(subtree, hf_kafka_acl_host, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_int8(subtree, hf_kafka_acl_operation, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_int8(subtree, hf_kafka_acl_permission_type, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -5655,48 +5586,31 @@ dissect_kafka_delete_acls_request_filter(tvbuff_t *tvb, kafka_packet_info_t *kin
 static int
 dissect_kafka_delete_acls_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    proto_item *subti;
-    proto_tree *subtree;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_acl_filter,
-                                     &subti, "Filters");
-    offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_delete_acls_request_filter, NULL);
-    proto_item_set_end(subti, tvb, offset);
-
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_delete_acls_request_filter, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
 }
 
 static int
-dissect_kafka_delete_acls_response_match(tvbuff_t *tvb, kafka_packet_info_t *kinfo _U_, proto_tree *tree, int offset)
+dissect_kafka_delete_acls_response_match(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
     proto_item *subti;
     proto_tree *subtree;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_acl_filter_match, &subti, "Match");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_acl_filter_match, &subti, "ACL Match");
 
     offset = dissect_kafka_error(tvb, kinfo, subtree, offset);
-
     offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_int8(subtree, hf_kafka_acl_resource_type, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_string(subtree, hf_kafka_acl_resource_name, tvb, kinfo, offset, NULL);
-
-    if (kinfo->api_version >= 1) {
-        offset = dissect_kafka_int8(subtree, hf_kafka_acl_resource_pattern_type, tvb, kinfo, offset, NULL);
-    }
-
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_int8(subtree, hf_kafka_acl_resource_pattern_type, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_string(subtree, hf_kafka_acl_principal, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_string(subtree, hf_kafka_acl_host, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_int8(subtree, hf_kafka_acl_operation, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_int8(subtree, hf_kafka_acl_permission_type, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -5707,22 +5621,14 @@ dissect_kafka_delete_acls_response_match(tvbuff_t *tvb, kafka_packet_info_t *kin
 static int
 dissect_kafka_delete_acls_response_filter(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    proto_item *subti, *subsubti;
-    proto_tree *subtree, *subsubtree;
+    proto_item *subti;
+    proto_tree *subtree;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_acl_creation, &subti, "Filter");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_acl_creation, &subti, "ACL Filter");
 
     offset = dissect_kafka_error(tvb, kinfo, subtree, offset);
-
     offset = dissect_kafka_string(subtree, hf_kafka_error_message, tvb, kinfo, offset, NULL);
-
-    subsubtree = proto_tree_add_subtree(subtree, tvb, offset, -1,
-                                     ett_kafka_acl_filter_matches,
-                                     &subsubti, "Matches");
-    offset = dissect_kafka_array(subsubtree, tvb, kinfo, offset, &dissect_kafka_delete_acls_response_match, NULL);
-
-    proto_item_set_end(subsubti, tvb, offset);
-
+    offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_delete_acls_response_match, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -5733,17 +5639,9 @@ dissect_kafka_delete_acls_response_filter(tvbuff_t *tvb, kafka_packet_info_t *ki
 static int
 dissect_kafka_delete_acls_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    proto_item *subti;
-    proto_tree *subtree;
 
     offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
-
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1,
-                                     ett_kafka_acl_creations,
-                                     &subti, "Filters");
-    offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_delete_acls_response_filter, NULL);
-    proto_item_set_end(subti, tvb, offset);
-
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_delete_acls_response_filter, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
