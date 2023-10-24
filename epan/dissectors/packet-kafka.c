@@ -602,7 +602,7 @@ static const value_string kafka_errors[] = {
     { 12, "Offset Metadata Too Large" },
     { 14, "Offsets Load In Progress" },
     { 15, "The Coordinator is not Available" },
-    { 16, "Not Coordinator For Consumer" },
+    { 16, "This is not the correct coordinator" },
     { 17, "Invalid topic" },
     { 18, "Message batch larger than configured server segment size" },
     { 19, "Not enough in-sync replicas" },
