@@ -254,6 +254,7 @@ static int hf_kafka_scram_salt = -1;
 static int hf_kafka_scram_salted_password = -1;
 static int hf_kafka_isr_version = -1;
 static int hf_kafka_feature_allow_downgrade = -1;
+static int hf_kafka_feature_upgrade_type = -1;
 static int hf_kafka_envelope_data = -1;
 static int hf_kafka_envelope_request_principal = -1;
 static int hf_kafka_envelope_client_host = -1;
@@ -564,7 +565,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_ALTER_PARTITION,                "AlterPartition",
       0, 3, 0 },
     { KAFKA_UPDATE_FEATURES,                "UpdateFeatures",
-      0, 0, 0 },
+      0, 1, 0 },
     { KAFKA_ENVELOPE,                       "Envelope",
       0, 0, 0 },
     { KAFKA_FETCH_SHAPSHOT,                 "FetchSnapshot",
@@ -912,6 +913,14 @@ static const value_string scram_mechanisms[] = {
     { 0, "Unknown" },
     { 1, "SCRAM-SHA-256" },
     { 2, "SCRAM-SHA-512" },
+    { 0, NULL }
+};
+
+static const value_string feature_upgrade_types[] = {
+    { 0, "Unknown" },
+    { 1, "Upgrade" },
+    { 2, "Safe Downgrade" },
+    { 3, "Unsafe Downgrade" },
     { 0, NULL }
 };
 
@@ -7994,7 +8003,10 @@ dissect_kafka_update_features_request_feature(tvbuff_t *tvb, kafka_packet_info_t
 
     offset = dissect_kafka_string(subtree, hf_kafka_feature_name, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_int16(subtree, hf_kafka_feature_max_version, tvb, kinfo, offset, NULL);
+    __KAFKA_UNTIL_VERSION__(0)
     offset = dissect_kafka_int8(subtree, hf_kafka_feature_allow_downgrade, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_int8(subtree, hf_kafka_feature_upgrade_type, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
@@ -8008,6 +8020,8 @@ dissect_kafka_update_features_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo,
 
     offset = dissect_kafka_int32(tree, hf_kafka_timeout, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_update_features_request_feature, NULL);
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_int8(tree, hf_kafka_validate_only, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
@@ -10466,6 +10480,11 @@ proto_register_kafka_protocol_fields(int protocol)
         { &hf_kafka_feature_allow_downgrade,
                 { "Allow Downgrade", "kafka.feature_allow_downgrade",
                         FT_BOOLEAN, BASE_NONE, 0, 0,
+                        NULL, HFILL }
+        },
+        { &hf_kafka_feature_upgrade_type,
+                { "Upgrade Type", "kafka.feature_upgrade_type",
+                        FT_INT8, BASE_DEC, VALS(feature_upgrade_types), 0,
                         NULL, HFILL }
         },
         { &hf_kafka_envelope_data,
