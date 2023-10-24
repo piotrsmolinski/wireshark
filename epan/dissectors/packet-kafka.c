@@ -490,7 +490,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_ADD_PARTITIONS_TO_TXN,         "AddPartitionsToTxn",
       0, 3, 3 },
     { KAFKA_ADD_OFFSETS_TO_TXN,            "AddOffsetsToTxn",
-      0, 1, -1 },
+      0, 3, 3 },
     { KAFKA_END_TXN,                       "EndTxn",
       0, 3, 3 },
     { KAFKA_WRITE_TXN_MARKERS,             "WriteTxnMarkers",
@@ -5245,15 +5245,12 @@ dissect_kafka_add_partitions_to_txn_response(tvbuff_t *tvb, kafka_packet_info_t 
 static int
 dissect_kafka_add_offsets_to_txn_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
+
     offset = dissect_kafka_string(tree, hf_kafka_transactional_id, tvb, kinfo, offset, NULL);
-
-    proto_tree_add_item(tree, hf_kafka_producer_id, tvb, offset, 8, ENC_BIG_ENDIAN);
-    offset += 8;
-
-    proto_tree_add_item(tree, hf_kafka_producer_epoch, tvb, offset, 2, ENC_BIG_ENDIAN);
-    offset += 2;
-
+    offset = dissect_kafka_int64(tree, hf_kafka_producer_id, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_int16(tree, hf_kafka_producer_epoch, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
 }
@@ -5262,9 +5259,10 @@ dissect_kafka_add_offsets_to_txn_request(tvbuff_t *tvb, kafka_packet_info_t *kin
 static int
 dissect_kafka_add_offsets_to_txn_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
 
+    offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
     offset = dissect_kafka_error(tvb, kinfo, tree, offset);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
 }
