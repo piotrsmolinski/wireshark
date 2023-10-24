@@ -8978,13 +8978,13 @@ dissect_kafka_describe_transactions_response_transaction(tvbuff_t *tvb, kafka_pa
     proto_item *subti;
     proto_tree *subtree;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_topic, &subti, "Topic");
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_transaction, &subti, "Transaction");
 
     offset = dissect_kafka_error_ret(tvb, kinfo, subtree, offset, NULL);
     offset = dissect_kafka_string(subtree, hf_kafka_transactional_id, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_string(subtree, hf_kafka_transaction_state, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_int32(subtree, hf_kafka_transaction_timeout, tvb, kinfo, offset, NULL);
-    offset = dissect_kafka_int8(subtree, hf_kafka_transaction_start_time, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_timestamp(subtree, hf_kafka_transaction_start_time, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_int64(subtree, hf_kafka_producer_id, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_int16(subtree, hf_kafka_producer_epoch, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_describe_transactions_response_topic, NULL);
