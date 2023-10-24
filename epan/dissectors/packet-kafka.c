@@ -4172,21 +4172,13 @@ dissect_kafka_sync_group_request_group_assignment(tvbuff_t *tvb, kafka_packet_in
     proto_tree *subtree;
     kafka_buffer_ref member;
 
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_assignment, &subti,
-                                     "Group Assignment");
-
-    /* member_id */
+    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_assignment, &subti, "Group Assignment");
     offset = dissect_kafka_string(subtree, hf_kafka_member_id, tvb, kinfo, offset, &member);
-
-    /* member_assigment */
     offset = dissect_kafka_bytes(subtree, hf_kafka_member_assignment, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_tagged_fields(tvb, kinfo, subtree, offset, NULL);
 
     proto_item_set_end(subti, tvb, offset);
-    proto_item_append_text(subti, " (Member=%s)",
-                           kafka_tvb_get_string(kinfo->pinfo->pool, tvb, member.offset, member.length)
-    );
+    proto_item_append_text(subti, " (Member=%s)", __KAFKA_STRING__(member));
 
     return offset;
 }
@@ -4194,49 +4186,23 @@ dissect_kafka_sync_group_request_group_assignment(tvbuff_t *tvb, kafka_packet_in
 static int
 dissect_kafka_sync_group_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    proto_item *subti;
-    proto_tree *subtree;
     kafka_buffer_ref group;
     kafka_buffer_ref member;
 
-    /* group_id */
     offset = dissect_kafka_string(tree, hf_kafka_consumer_group, tvb, kinfo, offset, &group);
-
-    /* generation_id */
-    proto_tree_add_item(tree, hf_kafka_generation_id, tvb, offset, 4, ENC_BIG_ENDIAN);
-    offset += 4;
-
-    /* member_id */
+    offset = dissect_kafka_int32(tree, hf_kafka_generation_id, tvb, kinfo, offset, &group);
     offset = dissect_kafka_string(tree, hf_kafka_member_id, tvb, kinfo, offset, &member);
-
-    /* instance_id */
-    if (kinfo->api_version >= 3) {
-        offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, kinfo, offset, NULL);
-    }
-
-    /* protocol_type */
-    if (kinfo->api_version >= 5) {
-        offset = dissect_kafka_string(tree, hf_kafka_protocol_type, tvb, kinfo, offset, NULL);
-    }
-
-    /* protocol_name */
-    if (kinfo->api_version >= 5) {
-        offset = dissect_kafka_string(tree, hf_kafka_protocol_name, tvb, kinfo, offset, NULL);
-    }
-
-    /* [group_assignment] */
-    subtree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_kafka_group_assignments, &subti,
-                                     "Group Assignments");
-    offset = dissect_kafka_array(subtree, tvb, kinfo, offset, &dissect_kafka_sync_group_request_group_assignment, NULL);
-
+    __KAFKA_SINCE_VERSION__(3)
+    offset = dissect_kafka_string(tree, hf_kafka_consumer_group_instance, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(5)
+    offset = dissect_kafka_string(tree, hf_kafka_protocol_type, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(5)
+    offset = dissect_kafka_string(tree, hf_kafka_protocol_name, tvb, kinfo, offset, NULL);
+    offset = dissect_kafka_array(tree, tvb, kinfo, offset, &dissect_kafka_sync_group_request_group_assignment, NULL);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
-    proto_item_set_end(subti, tvb, offset);
-
     col_append_fstr(kinfo->pinfo->cinfo, COL_INFO,
-                    " (Group=%s, Member=%s)",
-                    kafka_tvb_get_string(kinfo->pinfo->pool, tvb, group.offset, group.length),
-                    kafka_tvb_get_string(kinfo->pinfo->pool, tvb, member.offset, member.length));
+                    " (Group=%s, Member=%s)", __KAFKA_STRING__(group), __KAFKA_STRING__(member));
 
     return offset;
 }
@@ -4244,26 +4210,14 @@ dissect_kafka_sync_group_request(tvbuff_t *tvb, kafka_packet_info_t *kinfo, prot
 static int
 dissect_kafka_sync_group_response(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    if (kinfo->api_version >= 1) {
-        offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
-    }
-
-    /* error_code */
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_throttle_time(tvb, kinfo, tree, offset);
     offset = dissect_kafka_error(tvb, kinfo, tree, offset);
-
-    /* protocol_type */
-    if (kinfo->api_version >= 5) {
-        offset = dissect_kafka_string(tree, hf_kafka_protocol_type, tvb, kinfo, offset, NULL);
-    }
-
-    /* protocol_name */
-    if (kinfo->api_version >= 5) {
-        offset = dissect_kafka_string(tree, hf_kafka_protocol_name, tvb, kinfo, offset, NULL);
-    }
-
-    /* member_assignment */
+    __KAFKA_SINCE_VERSION__(5)
+    offset = dissect_kafka_string(tree, hf_kafka_protocol_type, tvb, kinfo, offset, NULL);
+    __KAFKA_SINCE_VERSION__(5)
+    offset = dissect_kafka_string(tree, hf_kafka_protocol_name, tvb, kinfo, offset, NULL);
     offset = dissect_kafka_bytes(tree, hf_kafka_member_assignment, tvb, kinfo, offset, NULL);
-
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
 
     return offset;
