@@ -71,19 +71,12 @@ typedef struct kafka_buffer_ref {
     gint length;
 } kafka_buffer_ref;
 
-typedef int(*dissect_kafka_object_v2_fields_cb)(
+typedef int(*dissect_kafka_object_fields_cb)(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
         proto_tree *tree,
-        int offset
-        );
-
-typedef int(*dissect_kafka_object_v2_tags_cb)(
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        proto_tree *tree,
-        int offset,
-        guint64 tag
+        gint offset,
+        void *retval
         );
 
 typedef int(*dissect_kafka_array_element_cb)(
@@ -118,15 +111,6 @@ kafka_tvb_get_uuid(
         int offset);
 
 WS_DLL_PUBLIC int
-dissect_kafka_int8_v2(
-        proto_tree *tree,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int offset,
-        int hf_item,
-        gint8 *ret);
-
-WS_DLL_PUBLIC int
 dissect_kafka_int8(
         proto_tree *tree,
         int hf_item,
@@ -134,15 +118,6 @@ dissect_kafka_int8(
         kafka_packet_info_t *kinfo,
         int offset,
         gint8 *ret);
-
-WS_DLL_PUBLIC int
-dissect_kafka_int16_v2(
-        proto_tree *tree,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int offset,
-        int hf_item,
-        gint16 *ret);
 
 WS_DLL_PUBLIC int
 dissect_kafka_int16(
@@ -154,15 +129,6 @@ dissect_kafka_int16(
         gint16 *ret);
 
 WS_DLL_PUBLIC int
-dissect_kafka_int32_v2(
-        proto_tree *tree,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int offset,
-        int hf_item,
-        gint32 *ret);
-
-WS_DLL_PUBLIC int
 dissect_kafka_int32(
         proto_tree *tree,
         int hf_item,
@@ -170,15 +136,6 @@ dissect_kafka_int32(
         kafka_packet_info_t *kinfo,
         int offset,
         gint32 *ret);
-
-WS_DLL_PUBLIC int
-dissect_kafka_int64_v2(
-        proto_tree *tree,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int offset,
-        int hf_item,
-        gint64 *ret);
 
 WS_DLL_PUBLIC int
 dissect_kafka_int64(
@@ -206,15 +163,6 @@ dissect_kafka_varuint(
         kafka_packet_info_t *kinfo,
         int offset,
         guint64 *ret);
-
-WS_DLL_PUBLIC int
-dissect_kafka_timestamp_v2(
-        proto_tree *tree,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int offset,
-        int hf_item,
-        gint64 *ret);
 
 WS_DLL_PUBLIC int
 dissect_kafka_timestamp(
@@ -313,15 +261,6 @@ dissect_kafka_bytes(
         kafka_buffer_ref *p_buffer);
 
 WS_DLL_PUBLIC int
-dissect_kafka_uuid_v2(
-        proto_tree *tree,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int offset,
-        int hf_item,
-        void *ret);
-
-WS_DLL_PUBLIC int
 dissect_kafka_uuid(
         proto_tree *tree,
         int hf_item,
@@ -338,5 +277,22 @@ dissect_kafka_array(
         int offset,
         dissect_kafka_array_element_cb element_cb,
         int *p_count);
+
+typedef int(*dissect_kafka_object_tags_cb)(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        gint offset,
+        guint64 tag
+);
+
+WS_DLL_PUBLIC int
+dissect_kafka_tagged_fields(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset,
+        dissect_kafka_object_tags_cb func
+);
 
 #endif /* packet-kafka-common.h */

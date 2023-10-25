@@ -524,8 +524,6 @@ dissect_kafka_regular_array(
 
     offset += 4;
 
-    proto_item_append_text(tree, " (regular %u items)", (guint)count);
-
     offset = dissect_kafka_array_elements(tree, tvb, kinfo, offset, func, count);
 
     if (p_count != NULL) *p_count = count;
@@ -586,7 +584,6 @@ dissect_kafka_array(
     } else {
         return dissect_kafka_regular_array(tree, tvb, kinfo, offset, func, p_count);
     }
-
 }
 
 int
@@ -615,4 +612,77 @@ dissect_kafka_uuid(
         kafka_buffer_ref *ret)
 {
     return dissect_kafka_uuid_v2(tree, tvb, kinfo, offset, hf_item, ret);
+}
+
+/* Tagged fields support (since Kafka 2.4) */
+
+static int
+dissect_kafka_tagged_field(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset,
+        dissect_kafka_object_tags_cb func)
+{
+
+    guint field_tag_len;
+    guint field_length_len;
+    guint64 field_tag;
+    guint64 field_length;
+
+    field_tag_len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &field_tag, ENC_VARINT_PROTOBUF);
+    THROW_MESSAGE_ON(field_tag_len == 0, ReportedBoundsError, "Invalid varint content");
+
+    field_length_len = tvb_get_varint(tvb, offset + field_tag_len, FT_VARINT_MAX_LEN, &field_length, ENC_VARINT_PROTOBUF);
+    THROW_MESSAGE_ON(field_length_len == 0, ReportedBoundsError, "Invalid varint content");
+
+    if (func) func(
+                tvb_new_subset_length_caplen(
+                        tvb,
+                        offset + field_tag_len + field_length_len,
+                        (guint)field_length,
+                        (guint)field_length),
+                kinfo,
+                tree,
+                0,
+                field_tag);
+
+    return offset + field_tag_len + field_length_len + (guint)field_length;
+
+}
+
+int
+dissect_kafka_tagged_fields(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset,
+        dissect_kafka_object_tags_cb func)
+{
+    gint64 count;
+    guint len;
+
+    /*
+     * Tagged fields are only present in protocol versions supporting Flexible API
+     */
+    if (! kinfo->flexible_api)
+    {
+        return offset;
+    }
+
+    len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &count, ENC_VARINT_PROTOBUF);
+    THROW_MESSAGE_ON(len == 0, ReportedBoundsError, "Invalid varint content");
+
+    offset += len;
+
+    /*
+     * Contrary to compact arrays, tagged fields store just count
+     * https://cwiki.apache.org/confluence/display/KAFKA/KIP-482%3A+The+Kafka+Protocol+should+Support+Optional+Tagged+Fields
+     */
+    for (int i=0; i<count; i++)
+    {
+        offset = dissect_kafka_tagged_field(tvb, kinfo, tree, offset, func);
+    }
+
+    return offset;
 }
