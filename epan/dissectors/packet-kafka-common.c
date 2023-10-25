@@ -73,20 +73,6 @@ kafka_tvb_get_uuid(
 }
 
 int
-dissect_kafka_int8_v2(
-        proto_tree *tree,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo _U_,
-        int offset,
-        int hf_item,
-        gint8 *ret)
-{
-    if (ret != NULL) *ret = tvb_get_gint8(tvb, offset);
-    proto_tree_add_item(tree, hf_item, tvb, offset, 1, ENC_NA);
-    return offset+1;
-}
-
-int
 dissect_kafka_int8(
         proto_tree *tree,
         int hf_item,
@@ -95,16 +81,18 @@ dissect_kafka_int8(
         int offset,
         gint8 *ret)
 {
-    return dissect_kafka_int8_v2(tree, tvb, kinfo, offset, hf_item, ret);
+    if (ret != NULL) *ret = tvb_get_gint8(tvb, offset);
+    proto_tree_add_item(tree, hf_item, tvb, offset, 1, ENC_NA);
+    return offset+1;
 }
 
 int
-dissect_kafka_int16_v2(
+dissect_kafka_int16(
         proto_tree *tree,
+        int hf_item,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
         int offset,
-        int hf_item,
         gint16 *ret)
 {
     if (ret != NULL) *ret = tvb_get_gint16(tvb, offset, ENC_BIG_ENDIAN);
@@ -113,24 +101,12 @@ dissect_kafka_int16_v2(
 }
 
 int
-dissect_kafka_int16(
+dissect_kafka_int32(
         proto_tree *tree,
         int hf_item,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int offset,
-        gint16 *ret)
-{
-    return dissect_kafka_int16_v2(tree, tvb, kinfo, offset, hf_item, ret);
-}
-
-int
-dissect_kafka_int32_v2(
-        proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
         int offset,
-        int hf_item,
         gint32 *ret)
 {
     if (ret != NULL) *ret = tvb_get_gint32(tvb, offset, ENC_BIG_ENDIAN);
@@ -139,41 +115,17 @@ dissect_kafka_int32_v2(
 }
 
 int
-dissect_kafka_int32(
+dissect_kafka_int64(
         proto_tree *tree,
         int hf_item,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int offset,
-        gint32 *ret)
-{
-    return dissect_kafka_int32_v2(tree, tvb, kinfo, offset, hf_item, ret);
-}
-
-int
-dissect_kafka_int64_v2(
-        proto_tree *tree,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
         int offset,
-        int hf_item,
         gint64 *ret)
 {
     if (ret != NULL) *ret = tvb_get_gint64(tvb, offset, ENC_BIG_ENDIAN);
     proto_tree_add_item(tree, hf_item, tvb, offset, 8, ENC_BIG_ENDIAN);
     return offset + 8;
-}
-
-int
-dissect_kafka_int64(
-        proto_tree *tree,
-        int hf_item,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int offset,
-        gint64 *ret)
-{
-    return dissect_kafka_int64_v2(tree, tvb, kinfo, offset, hf_item, ret);
 }
 
 int
@@ -222,31 +174,18 @@ dissect_kafka_varuint(
     return offset + len;
 }
 
-
-int
-dissect_kafka_timestamp_v2(
-        proto_tree *tree,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo _U_,
-        int offset,
-        int hf_item,
-        gint64 *ret)
-{
-    if (ret != NULL) *ret = tvb_get_gint64(tvb, offset, ENC_BIG_ENDIAN);
-    proto_tree_add_item(tree, hf_item, tvb, offset, 8, ENC_TIME_MSECS | ENC_BIG_ENDIAN);
-    return offset+8;
-}
-
 int
 dissect_kafka_timestamp(
         proto_tree *tree,
         int hf_item,
         tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
+        kafka_packet_info_t *kinfo _U_,
         int offset,
         gint64 *ret)
 {
-    return dissect_kafka_timestamp_v2(tree, tvb, kinfo, offset, hf_item, ret);
+    if (ret != NULL) *ret = tvb_get_gint64(tvb, offset, ENC_BIG_ENDIAN);
+    proto_tree_add_item(tree, hf_item, tvb, offset, 8, ENC_TIME_MSECS | ENC_BIG_ENDIAN);
+    return offset+8;
 }
 
 int
@@ -278,13 +217,14 @@ dissect_kafka_replica_id(
  * Pre KIP-482 coding. The string is prefixed with 16-bit signed integer. Value -1 means null.
  */
 int
-dissect_kafka_regular_string_v2(
+dissect_kafka_regular_string(
         proto_tree *tree,
+        int hf_item,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
         int offset,
-        int hf_item,
-        kafka_buffer_ref *p_buffer)
+        kafka_buffer_ref *p_buffer
+)
 {
     gint16 length;
 
@@ -316,13 +256,14 @@ dissect_kafka_regular_string_v2(
  * Compact coding. The string is prefixed with unsigned varint containing number of octets + 1.
  */
 int
-dissect_kafka_compact_string_v2(
+dissect_kafka_compact_string(
         proto_tree *tree,
+        int hf_item,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
         int offset,
-        int hf_item,
-        kafka_buffer_ref *p_buffer)
+        kafka_buffer_ref *p_buffer
+)
 {
     guint len;
     guint64 length;
@@ -357,39 +298,34 @@ dissect_kafka_compact_string_v2(
  * Dissect string. Depending on the 'flexible' flag use old style or compact coding.
  */
 int
-dissect_kafka_string_v2(
+dissect_kafka_string(
         proto_tree *tree,
+        int hf_item,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
         int offset,
-        int hf_item,
-        kafka_buffer_ref *p_buffer)
+        kafka_buffer_ref *p_buffer
+)
 {
     if (kinfo->flexible_api) {
-        return dissect_kafka_compact_string_v2(tree, tvb, kinfo, offset, hf_item, p_buffer);
+        return dissect_kafka_compact_string(tree, hf_item, tvb, kinfo, offset, p_buffer);
     } else {
-        return dissect_kafka_regular_string_v2(tree, tvb, kinfo, offset, hf_item, p_buffer);
+        return dissect_kafka_regular_string(tree, hf_item, tvb, kinfo, offset, p_buffer);
     }
-}
-
-int
-dissect_kafka_string(proto_tree *tree, int hf_item, tvbuff_t *tvb, kafka_packet_info_t *kinfo, int offset,
-                     kafka_buffer_ref *p_buffer)
-{
-    return dissect_kafka_string_v2(tree, tvb, kinfo, offset, hf_item, p_buffer);
 }
 
 /*
  * Pre KIP-482 coding. The string is prefixed with signed 16-bit integer containing number of octets.
  */
 int
-dissect_kafka_regular_bytes_v2(
+dissect_kafka_regular_bytes(
         proto_tree *tree,
+        int hf_item,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
         int offset,
-        int hf_item,
-        kafka_buffer_ref *p_buffer)
+        kafka_buffer_ref *p_buffer
+)
 {
     gint16 length;
 
@@ -422,13 +358,14 @@ dissect_kafka_regular_bytes_v2(
  * Compact coding. The bytes is prefixed with unsigned varint containing number of octets + 1.
  */
 int
-dissect_kafka_compact_bytes_v2(
+dissect_kafka_compact_bytes(
         proto_tree *tree,
+        int hf_item,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
         int offset,
-        int hf_item,
-        kafka_buffer_ref *p_buffer)
+        kafka_buffer_ref *p_buffer
+)
 {
     guint len;
     guint64 length;
@@ -466,26 +403,20 @@ dissect_kafka_compact_bytes_v2(
  * Dissect bytes. Depending on the 'flexible_api' flag in 'kinfo' use old style or compact coding.
  */
 int
-dissect_kafka_bytes_v2(
+dissect_kafka_bytes(
         proto_tree *tree,
+        int hf_item,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
         int offset,
-        int hf_item,
-        kafka_buffer_ref *p_buffer)
+        kafka_buffer_ref *p_buffer
+)
 {
     if (kinfo->flexible_api) {
-        return dissect_kafka_compact_bytes_v2(tree, tvb, kinfo, offset, hf_item, p_buffer);
+        return dissect_kafka_compact_bytes(tree, hf_item, tvb, kinfo, offset, p_buffer);
     } else {
-        return dissect_kafka_regular_bytes_v2(tree, tvb, kinfo, offset, hf_item, p_buffer);
+        return dissect_kafka_regular_bytes(tree, hf_item, tvb, kinfo, offset, p_buffer);
     }
-}
-
-int
-dissect_kafka_bytes(proto_tree *tree, int hf_item, tvbuff_t *tvb, kafka_packet_info_t *kinfo, int offset,
-                    kafka_buffer_ref *p_buffer)
-{
-    return dissect_kafka_bytes_v2(tree, tvb, kinfo, offset, hf_item, p_buffer);
 }
 
 int

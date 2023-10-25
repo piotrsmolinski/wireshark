@@ -183,35 +183,28 @@ dissect_kafka_replica_id(
         gint32 *ret);
 
 WS_DLL_PUBLIC int
-dissect_kafka_regular_string_v2(
+dissect_kafka_regular_string(
         proto_tree *tree,
+        int hf_item,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
         int offset,
-        int hf_item,
-        kafka_buffer_ref *p_buffer);
+        kafka_buffer_ref *p_buffer
+);
 
 WS_DLL_PUBLIC int
-dissect_kafka_compact_string_v2(
+dissect_kafka_compact_string(
         proto_tree *tree,
+        int hf_item,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
         int offset,
-        int hf_item,
-        kafka_buffer_ref *p_buffer);
+        kafka_buffer_ref *p_buffer
+);
 
 /*
  * Dissect string. Depending on the 'flexible' flag use old style or compact coding.
  */
-WS_DLL_PUBLIC int
-dissect_kafka_string_v2(
-        proto_tree *tree,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int offset,
-        int hf_item,
-        kafka_buffer_ref *p_buffer);
-
 WS_DLL_PUBLIC int
 dissect_kafka_string(
         proto_tree *tree,
@@ -222,35 +215,28 @@ dissect_kafka_string(
         kafka_buffer_ref *p_buffer);
 
 WS_DLL_PUBLIC int
-dissect_kafka_regular_bytes_v2(
+dissect_kafka_regular_bytes(
         proto_tree *tree,
+        int hf_item,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
         int offset,
-        int hf_item,
-        kafka_buffer_ref *p_buffer);
+        kafka_buffer_ref *p_buffer
+);
 
 WS_DLL_PUBLIC int
-dissect_kafka_compact_bytes_v2(
+dissect_kafka_compact_bytes(
         proto_tree *tree,
+        int hf_item,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
         int offset,
-        int hf_item,
-        kafka_buffer_ref *p_buffer);
+        kafka_buffer_ref *p_buffer
+);
 
 /*
  * Dissect string. Depending on the 'flexible' flag use old style or compact coding.
  */
-WS_DLL_PUBLIC int
-dissect_kafka_bytes_v2(
-        proto_tree *tree,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int offset,
-        int hf_item,
-        kafka_buffer_ref *p_buffer);
-
 WS_DLL_PUBLIC int
 dissect_kafka_bytes(
         proto_tree *tree,
