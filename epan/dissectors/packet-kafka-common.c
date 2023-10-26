@@ -73,12 +73,12 @@ kafka_tvb_get_uuid(
 }
 
 int
-dissect_kafka_int8(
-        proto_tree *tree,
-        int hf_item,
+dissect_kafka_int8_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         gint8 *ret)
 {
     if (ret != NULL) *ret = tvb_get_gint8(tvb, offset);
@@ -87,12 +87,24 @@ dissect_kafka_int8(
 }
 
 int
-dissect_kafka_int16(
+dissect_kafka_int8(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
         proto_tree *tree,
-        int hf_item,
+        int offset,
+        int hf_item
+)
+{
+    return dissect_kafka_int8_ret(tvb, kinfo, tree, offset, hf_item, NULL);
+}
+
+int
+dissect_kafka_int16_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         gint16 *ret)
 {
     if (ret != NULL) *ret = tvb_get_gint16(tvb, offset, ENC_BIG_ENDIAN);
@@ -101,12 +113,24 @@ dissect_kafka_int16(
 }
 
 int
-dissect_kafka_int32(
+dissect_kafka_int16(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
         proto_tree *tree,
-        int hf_item,
+        int offset,
+        int hf_item
+)
+{
+    return dissect_kafka_int16_ret(tvb, kinfo, tree, offset, hf_item, NULL);
+}
+
+int
+dissect_kafka_int32_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         gint32 *ret)
 {
     if (ret != NULL) *ret = tvb_get_gint32(tvb, offset, ENC_BIG_ENDIAN);
@@ -115,12 +139,24 @@ dissect_kafka_int32(
 }
 
 int
-dissect_kafka_int64(
+dissect_kafka_int32(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
         proto_tree *tree,
-        int hf_item,
+        int offset,
+        int hf_item
+)
+{
+    return dissect_kafka_int32_ret(tvb, kinfo, tree, offset, hf_item, NULL);
+}
+
+int
+dissect_kafka_int64_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         gint64 *ret)
 {
     if (ret != NULL) *ret = tvb_get_gint64(tvb, offset, ENC_BIG_ENDIAN);
@@ -129,12 +165,25 @@ dissect_kafka_int64(
 }
 
 int
-dissect_kafka_varint(
+dissect_kafka_int64(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
         proto_tree *tree,
-        int hf_item,
+        int offset,
+        int hf_item
+)
+{
+    return dissect_kafka_int64_ret(tvb, kinfo, tree, offset, hf_item, NULL);
+}
+
+
+int
+dissect_kafka_varint_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         gint64 *ret)
 {
     gint64 value;
@@ -152,12 +201,12 @@ dissect_kafka_varint(
 }
 
 int
-dissect_kafka_varuint(
-        proto_tree *tree,
-        int hf_item,
+dissect_kafka_varuint_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         guint64 *ret)
 {
     guint64 value;
@@ -175,12 +224,12 @@ dissect_kafka_varuint(
 }
 
 int
-dissect_kafka_timestamp(
-        proto_tree *tree,
-        int hf_item,
+dissect_kafka_timestamp_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         gint64 *ret)
 {
     if (ret != NULL) *ret = tvb_get_gint64(tvb, offset, ENC_BIG_ENDIAN);
@@ -189,12 +238,25 @@ dissect_kafka_timestamp(
 }
 
 int
-dissect_kafka_replica_id(
+dissect_kafka_timestamp(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
         proto_tree *tree,
-        int hf_item,
+        int offset,
+        int hf_item
+)
+{
+    return dissect_kafka_timestamp_ret(tvb, kinfo, tree, offset, hf_item, NULL);
+}
+
+
+int
+dissect_kafka_replica_id_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         gint32 *ret)
 {
     proto_item *subti;
@@ -213,6 +275,18 @@ dissect_kafka_replica_id(
     return offset;
 }
 
+int
+dissect_kafka_replica_id(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset,
+        int hf_item
+)
+{
+    return dissect_kafka_replica_id_ret(tvb, kinfo, tree, offset, hf_item, NULL);
+}
+
 /*
  * Pre KIP-482 coding. The string is prefixed with 16-bit signed integer. Value -1 means null.
  */
@@ -229,10 +303,7 @@ dissect_kafka_regular_string(
     gint16 length;
 
     length = (gint16) tvb_get_ntohs(tvb, offset);
-    if (length < -1) {
-        // the value read does not make sense, fail
-        THROW_MESSAGE(ReportedBoundsError, "Invalid buffer length");
-    }
+    THROW_MESSAGE_ON(length < -1, ReportedBoundsError, "Invalid buffer length");
 
     if (length == -1) {
         proto_tree_add_string(tree, hf_item, tvb, offset, 2, NULL);
@@ -269,10 +340,7 @@ dissect_kafka_compact_string(
     guint64 length;
 
     len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &length, ENC_VARINT_PROTOBUF);
-    if (len == 0) {
-        // we cannot parse the varint, there is no point to continue parsing
-        THROW_MESSAGE(ReportedBoundsError, "Invalid varint content");
-    }
+    THROW_MESSAGE_ON(len == 0, ReportedBoundsError, "Invalid varint content");
 
     if (length == 0) {
         proto_tree_add_string(tree, hf_item, tvb, offset, len, NULL);
@@ -330,10 +398,7 @@ dissect_kafka_regular_bytes(
     gint16 length;
 
     length = (gint16) tvb_get_ntohs(tvb, offset);
-    if (length < -1) {
-        // the value read does not make sense, fail
-        THROW_MESSAGE(ReportedBoundsError, "Invalid buffer length");
-    }
+    THROW_MESSAGE_ON(length < -1, ReportedBoundsError, "Invalid buffer length");
 
     if (length == -1) {
         proto_tree_add_bytes_with_length(tree, hf_item, tvb, offset, 2,
@@ -371,11 +436,7 @@ dissect_kafka_compact_bytes(
     guint64 length;
 
     len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &length, ENC_VARINT_PROTOBUF);
-
-    if (len == 0) {
-        // we cannot parse the varint, there is no point to continue parsing
-        THROW_MESSAGE(ReportedBoundsError, "Invalid varint content");
-    }
+    THROW_MESSAGE_ON(len == 0, ReportedBoundsError, "Invalid varint content");
 
     if (length == 0) {
         proto_tree_add_bytes_with_length(tree, hf_item, tvb, offset, len,
@@ -420,82 +481,47 @@ dissect_kafka_bytes(
 }
 
 int
-dissect_kafka_array_elements(
-        proto_tree *tree,
+dissect_kafka_object(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
-        int offset,
-        dissect_kafka_array_element_cb func,
-        int count)
-{
-    int i;
-    for (i=0; i<count; i++) {
-        offset = func(tvb, kinfo, tree, offset);
-    }
-    return offset;
-}
-
-/*
- * In the pre KIP-482 the arrays had length saved in 32-bit signed integer. If the value was -1,
- * the array was considered to be null.
- */
-int
-dissect_kafka_regular_array(
         proto_tree *tree,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
         int offset,
-        dissect_kafka_array_element_cb func,
-        int *p_count)
+        int ett_idx,
+        const char *label,
+        dissect_kafka_object_content_cb func
+)
 {
-    gint32 count;
+    proto_item *object_ti;
+    proto_tree *object_tree;
 
-    count = (gint32) tvb_get_ntohl(tvb, offset);
-    THROW_MESSAGE_ON(count < -1, ReportedBoundsError, "Invalid array length");
-
-    offset += 4;
-
-    offset = dissect_kafka_array_elements(tree, tvb, kinfo, offset, func, count);
-
-    if (p_count != NULL) *p_count = count;
+    object_tree = proto_tree_add_subtree(tree, tvb, offset, -1, ett_idx, &object_ti, label);
+    offset = func(tvb, kinfo, object_tree, offset);
+    proto_item_set_end(object_ti, tvb, offset);
 
     return offset;
 }
 
-/*
- * KIP-482 introduced concept of compact arrays. If API version for the given call is marked flexible,
- * all arrays are prefixed with unsigned varint. The value is the array length + 1. If the value is 0,
- * the array is null.
- */
+
 int
-dissect_kafka_compact_array(
-        proto_tree *tree,
+tvb_get_array_size(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
         int offset,
-        dissect_kafka_array_element_cb func,
-        int *p_count)
+        int *size_len
+)
 {
-    guint64 count;
-    gint32 len;
-
-    len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &count, ENC_VARINT_PROTOBUF);
-    THROW_MESSAGE_ON(len ==0, ReportedBoundsError, "Invalid varint content");
-
-    offset += len;
-
-    /*
-     * Compact arrays store count+1, 0 is special value indicating null array, 1 means empty array
-     * https://cwiki.apache.org/confluence/display/KAFKA/KIP-482%3A+The+Kafka+Protocol+should+Support+Optional+Tagged+Fields
-     */
-    if (count > 0)
-    {
-        offset = dissect_kafka_array_elements(tree, tvb, kinfo, offset, func, (int)count - 1);
+    if (kinfo->flexible_api) {
+        guint64 count;
+        gint32 len = tvb_get_varint(tvb, offset, FT_VARINT_MAX_LEN, &count, ENC_VARINT_PROTOBUF);
+        THROW_MESSAGE_ON(len == 0, ReportedBoundsError, "Invalid varint content");
+        *size_len = len;
+        return (int)count - 1;
+    } else {
+        int count = tvb_get_ntohl(tvb, offset);
+        THROW_MESSAGE_ON(count < -1, ReportedBoundsError, "Invalid array length");
+        *size_len = 4;
+        return count;
     }
-
-    if (p_count != NULL) *p_count = (int)count - 1;
-
-    return offset;
 }
 
 /*
@@ -508,14 +534,81 @@ dissect_kafka_array(
         kafka_packet_info_t *kinfo,
         int offset,
         dissect_kafka_array_element_cb func,
-        int *p_count)
+        int *p_count
+)
 {
-    if (kinfo->flexible_api) {
-        return dissect_kafka_compact_array(tree, tvb, kinfo, offset, func, p_count);
-    } else {
-        return dissect_kafka_regular_array(tree, tvb, kinfo, offset, func, p_count);
+    int count, count_len;
+    count = tvb_get_array_size(tvb, kinfo, offset, &count_len);
+    offset += count_len;
+    for (int i=0; i<count; i++) {
+        offset = func(tvb, kinfo, tree, offset);
     }
+    if (p_count != NULL) *p_count = count;
+    return offset;
 }
+
+int
+dissect_kafka_array_simple(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset,
+        int collection_ett, const char *collection_label,
+        dissect_kafka_array_simple_cb func,
+        int item_hf
+)
+{
+    int count, count_len;
+    proto_item *collection_ti;
+    proto_tree *collection_tree;
+
+    count = tvb_get_array_size(tvb, kinfo, offset, &count_len);
+    offset += count_len;
+
+    if (collection_label) {
+        collection_tree = proto_tree_add_subtree(tree, tvb, offset, -1, collection_ett, &collection_ti, collection_label);
+    }
+    for (int i=0; i<count; i++) {
+        offset = func(tvb, kinfo, collection_label ? collection_tree : tree, offset, item_hf);
+    }
+    if (collection_label) {
+        proto_item_set_end(collection_ti, tvb, offset);
+    }
+    return offset;
+}
+
+int
+dissect_kafka_array_object(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset,
+        int collection_ett, const char *collection_label,
+        int item_ett, const char *item_label,
+        dissect_kafka_object_content_cb func
+)
+{
+    int count, count_len;
+    proto_item *collection_ti, *item_ti;
+    proto_tree *collection_tree, *item_tree;
+
+    count = tvb_get_array_size(tvb, kinfo, offset, &count_len);
+    offset += count_len;
+
+    if (collection_label) {
+        collection_tree = proto_tree_add_subtree(tree, tvb, offset, -1, collection_ett, &collection_ti, collection_label);
+    }
+    for (int i=0; i<count; i++) {
+        item_tree = proto_tree_add_subtree(collection_label ? collection_tree : tree, tvb, offset, -1, item_ett, &item_ti, item_label);
+        offset = func(tvb, kinfo, item_tree, offset);
+        proto_item_set_end(item_ti, tvb, offset);
+    }
+    if (collection_label) {
+        proto_item_set_end(collection_ti, tvb, offset);
+    }
+    return offset;
+}
+
 
 int
 dissect_kafka_uuid_v2(
