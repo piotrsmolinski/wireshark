@@ -183,7 +183,8 @@ dissect_kafka_timestamp_ret(
         proto_tree *tree,
         int offset,
         int hf_item,
-        gint64 *ret);
+        gint64 *ret
+);
 
 WS_DLL_PUBLIC int
 dissect_kafka_timestamp(
@@ -191,7 +192,8 @@ dissect_kafka_timestamp(
         kafka_packet_info_t *kinfo,
         proto_tree *tree,
         int offset,
-        int hf_item);
+        int hf_item
+);
 
 WS_DLL_PUBLIC int
 dissect_kafka_replica_id_ret(
@@ -200,7 +202,8 @@ dissect_kafka_replica_id_ret(
         proto_tree *tree,
         int offset,
         int hf_item,
-        gint32 *ret);
+        gint32 *ret
+);
 
 WS_DLL_PUBLIC int
 dissect_kafka_replica_id(
@@ -208,57 +211,68 @@ dissect_kafka_replica_id(
         kafka_packet_info_t *kinfo,
         proto_tree *tree,
         int offset,
-        int hf_item);
+        int hf_item
+);
 
 WS_DLL_PUBLIC int
-dissect_kafka_regular_string(
-        proto_tree *tree,
-        int hf_item,
+dissect_kafka_regular_string_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         kafka_buffer_ref *p_buffer
 );
 
 WS_DLL_PUBLIC int
-dissect_kafka_compact_string(
-        proto_tree *tree,
-        int hf_item,
+dissect_kafka_compact_string_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         kafka_buffer_ref *p_buffer
 );
 
 /*
  * Dissect string. Depending on the 'flexible' flag use old style or compact coding.
  */
+WS_DLL_PUBLIC int
+dissect_kafka_string_ret(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset,
+        int hf_item,
+        kafka_buffer_ref *p_buffer
+);
+
 WS_DLL_PUBLIC int
 dissect_kafka_string(
-        proto_tree *tree,
-        int hf_item,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
+        proto_tree *tree,
         int offset,
-        kafka_buffer_ref *p_buffer);
+        int hf_item
+);
 
 WS_DLL_PUBLIC int
-dissect_kafka_regular_bytes(
-        proto_tree *tree,
-        int hf_item,
+dissect_kafka_regular_bytes_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         kafka_buffer_ref *p_buffer
 );
 
 WS_DLL_PUBLIC int
-dissect_kafka_compact_bytes(
-        proto_tree *tree,
-        int hf_item,
+dissect_kafka_compact_bytes_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         kafka_buffer_ref *p_buffer
 );
 
@@ -266,22 +280,42 @@ dissect_kafka_compact_bytes(
  * Dissect string. Depending on the 'flexible' flag use old style or compact coding.
  */
 WS_DLL_PUBLIC int
-dissect_kafka_bytes(
-        proto_tree *tree,
-        int hf_item,
+dissect_kafka_bytes_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
+        proto_tree *tree,
         int offset,
-        kafka_buffer_ref *p_buffer);
+        int hf_item,
+        kafka_buffer_ref *p_buffer
+);
+
+WS_DLL_PUBLIC int
+dissect_kafka_bytes(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset,
+        int hf_item
+);
+
+WS_DLL_PUBLIC int
+dissect_kafka_uuid_ret(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset,
+        int hf_item,
+        kafka_buffer_ref *ret
+);
 
 WS_DLL_PUBLIC int
 dissect_kafka_uuid(
-        proto_tree *tree,
-        int hf_item,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
+        proto_tree *tree,
         int offset,
-        kafka_buffer_ref *ret);
+        int hf_item
+);
 
 typedef int(*dissect_kafka_object_content_cb)(
         tvbuff_t *tvb,

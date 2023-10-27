@@ -291,12 +291,12 @@ dissect_kafka_replica_id(
  * Pre KIP-482 coding. The string is prefixed with 16-bit signed integer. Value -1 means null.
  */
 int
-dissect_kafka_regular_string(
-        proto_tree *tree,
-        int hf_item,
+dissect_kafka_regular_string_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         kafka_buffer_ref *p_buffer
 )
 {
@@ -327,12 +327,12 @@ dissect_kafka_regular_string(
  * Compact coding. The string is prefixed with unsigned varint containing number of octets + 1.
  */
 int
-dissect_kafka_compact_string(
-        proto_tree *tree,
-        int hf_item,
+dissect_kafka_compact_string_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         kafka_buffer_ref *p_buffer
 )
 {
@@ -366,32 +366,44 @@ dissect_kafka_compact_string(
  * Dissect string. Depending on the 'flexible' flag use old style or compact coding.
  */
 int
-dissect_kafka_string(
-        proto_tree *tree,
-        int hf_item,
+dissect_kafka_string_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         kafka_buffer_ref *p_buffer
 )
 {
     if (kinfo->flexible_api) {
-        return dissect_kafka_compact_string(tree, hf_item, tvb, kinfo, offset, p_buffer);
+        return dissect_kafka_compact_string_ret(tvb, kinfo, tree, offset, hf_item, p_buffer);
     } else {
-        return dissect_kafka_regular_string(tree, hf_item, tvb, kinfo, offset, p_buffer);
+        return dissect_kafka_regular_string_ret(tvb, kinfo, tree, offset, hf_item, p_buffer);
     }
+}
+
+int
+dissect_kafka_string(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset,
+        int hf_item
+)
+{
+    return dissect_kafka_string_ret(tvb, kinfo, tree, offset, hf_item, NULL);
 }
 
 /*
  * Pre KIP-482 coding. The string is prefixed with signed 16-bit integer containing number of octets.
  */
 int
-dissect_kafka_regular_bytes(
-        proto_tree *tree,
-        int hf_item,
+dissect_kafka_regular_bytes_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         kafka_buffer_ref *p_buffer
 )
 {
@@ -423,12 +435,12 @@ dissect_kafka_regular_bytes(
  * Compact coding. The bytes is prefixed with unsigned varint containing number of octets + 1.
  */
 int
-dissect_kafka_compact_bytes(
-        proto_tree *tree,
-        int hf_item,
+dissect_kafka_compact_bytes_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo _U_,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         kafka_buffer_ref *p_buffer
 )
 {
@@ -464,20 +476,32 @@ dissect_kafka_compact_bytes(
  * Dissect bytes. Depending on the 'flexible_api' flag in 'kinfo' use old style or compact coding.
  */
 int
-dissect_kafka_bytes(
-        proto_tree *tree,
-        int hf_item,
+dissect_kafka_bytes_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
+        proto_tree *tree,
         int offset,
+        int hf_item,
         kafka_buffer_ref *p_buffer
 )
 {
     if (kinfo->flexible_api) {
-        return dissect_kafka_compact_bytes(tree, hf_item, tvb, kinfo, offset, p_buffer);
+        return dissect_kafka_compact_bytes_ret(tvb, kinfo, tree, offset, hf_item, p_buffer);
     } else {
-        return dissect_kafka_regular_bytes(tree, hf_item, tvb, kinfo, offset, p_buffer);
+        return dissect_kafka_regular_bytes_ret(tvb, kinfo, tree, offset, hf_item, p_buffer);
     }
+}
+
+int
+dissect_kafka_bytes(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset,
+        int hf_item
+)
+{
+    return dissect_kafka_bytes_ret(tvb, kinfo, tree, offset, hf_item, NULL);
 }
 
 int
@@ -609,18 +633,25 @@ dissect_kafka_array_object(
     return offset;
 }
 
-
 int
-dissect_kafka_uuid_v2(
-        proto_tree *tree,
+dissect_kafka_uuid_ret(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
+        proto_tree *tree,
         int offset,
         int hf_item,
-        void *ret _U_)
+        kafka_buffer_ref *ret
+)
 {
 
     proto_tree_add_string(tree, hf_item, tvb, offset, 16, kafka_tvb_get_uuid(kinfo->pinfo->pool, tvb, offset));
+
+    if (ret)
+    {
+        ret->offset = offset;
+        ret->length = 16;
+    }
+
     offset += 16;
 
     return offset;
@@ -628,14 +659,14 @@ dissect_kafka_uuid_v2(
 
 int
 dissect_kafka_uuid(
-        proto_tree *tree,
-        int hf_item,
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
+        proto_tree *tree,
         int offset,
-        kafka_buffer_ref *ret)
+        int hf_item
+)
 {
-    return dissect_kafka_uuid_v2(tree, tvb, kinfo, offset, hf_item, ret);
+    return dissect_kafka_uuid_ret(tvb, kinfo, tree, offset, hf_item, NULL);
 }
 
 /* Tagged fields support (since Kafka 2.4) */
