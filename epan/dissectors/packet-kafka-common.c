@@ -582,15 +582,13 @@ dissect_kafka_array_simple(
     proto_tree *collection_tree;
 
     count = tvb_get_array_size(tvb, kinfo, offset, &count_len);
-    offset += count_len;
-
     if (count < 0) {
-        return offset;
+        return offset + count_len;
     }
-
     if (collection_label) {
-        collection_tree = proto_tree_add_subtree(tree, tvb, offset, 0, collection_ett, &collection_ti, collection_label);
+        collection_tree = proto_tree_add_subtree(tree, tvb, offset, -1, collection_ett, &collection_ti, collection_label);
     }
+    offset += count_len;
     for (int i=0; i<count; i++) {
         offset = func(tvb, kinfo, collection_label ? collection_tree : tree, offset, item_hf);
     }
@@ -616,15 +614,13 @@ dissect_kafka_array_object(
     proto_tree *collection_tree, *item_tree;
 
     count = tvb_get_array_size(tvb, kinfo, offset, &count_len);
-    offset += count_len;
-
     if (count < 0) {
-        return offset;
+        return offset + count_len;
     }
-
     if (collection_label) {
         collection_tree = proto_tree_add_subtree(tree, tvb, offset, -1, collection_ett, &collection_ti, collection_label);
     }
+    offset += count_len;
     for (int i=0; i<count; i++) {
         item_tree = proto_tree_add_subtree(collection_label ? collection_tree : tree, tvb, offset, -1, item_ett, &item_ti, item_label);
         offset = func(tvb, kinfo, item_tree, offset);
