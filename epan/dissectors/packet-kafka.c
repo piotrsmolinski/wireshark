@@ -2541,8 +2541,10 @@ static int
 dissect_kafka_fetch_request_topic
 (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
+    kafka_buffer_ref topic;
+    int topic_id_offset = offset;
     __KAFKA_UNTIL_VERSION__(12)
-    offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_topic_name);
+    offset = dissect_kafka_string_ret(tvb, kinfo, tree, offset, hf_kafka_topic_name, &topic);
     __KAFKA_SINCE_VERSION__(13)
     offset = dissect_kafka_uuid(tvb, kinfo, tree, offset, hf_kafka_topic_id);
     offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
@@ -2550,6 +2552,10 @@ dissect_kafka_fetch_request_topic
                                         ett_kafka_partition, "Partition",
                                         &dissect_kafka_fetch_request_partition);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    __KAFKA_UNTIL_VERSION__(12)
+    proto_item_append_text(proto_tree_get_parent(tree), " (Name=%s)", __KAFKA_STRING__(topic));
+    __KAFKA_SINCE_VERSION__(13)
+    proto_item_append_text(proto_tree_get_parent(tree), " (ID=%s)", __KAFKA_UUID__(topic_id_offset));
     return offset;
 }
 
@@ -2715,10 +2721,10 @@ static int
 dissect_kafka_fetch_response_topic
 (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    guint32     count = 0;
-
+    kafka_buffer_ref topic;
+    int topic_id_offset = offset;
     __KAFKA_UNTIL_VERSION__(12)
-    offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_topic_name);
+    offset = dissect_kafka_string_ret(tvb, kinfo, tree, offset, hf_kafka_topic_name, &topic);
     __KAFKA_SINCE_VERSION__(13)
     offset = dissect_kafka_uuid(tvb, kinfo, tree, offset, hf_kafka_topic_id);
     offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
@@ -2726,9 +2732,10 @@ dissect_kafka_fetch_response_topic
                                         ett_kafka_partition, "Partition",
                                         &dissect_kafka_fetch_response_partition);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
-
-    proto_item_append_text(proto_tree_get_parent(tree), " (%u partitions)", count);
-
+    __KAFKA_UNTIL_VERSION__(12)
+    proto_item_append_text(proto_tree_get_parent(tree), " (Name=%s)", __KAFKA_STRING__(topic));
+    __KAFKA_SINCE_VERSION__(13)
+    proto_item_append_text(proto_tree_get_parent(tree), " (ID=%s)", __KAFKA_UUID__(topic_id_offset));
     return offset;
 }
 
@@ -3815,7 +3822,9 @@ dissect_kafka_create_topics_response_topic
 (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
     kafka_buffer_ref topic;
+    int topic_id_offset = 0;
     offset = dissect_kafka_string_ret(tvb, kinfo, tree, offset, hf_kafka_topic_name, &topic);
+    topic_id_offset = offset;
     __KAFKA_SINCE_VERSION__(7)
     offset = dissect_kafka_uuid(tvb, kinfo, tree, offset, hf_kafka_topic_id);
     offset = dissect_kafka_error(tvb, kinfo, tree, offset);
@@ -3829,8 +3838,13 @@ dissect_kafka_create_topics_response_topic
     offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
                                         -1, NULL, ett_kafka_config_entry, "Config",
                                         &dissect_kafka_create_topics_response_topic_config);
-    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, &dissect_kafka_create_topics_response_topic_tagged_fields);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset,
+                                         &dissect_kafka_create_topics_response_topic_tagged_fields);
+    __KAFKA_UNTIL_VERSION__(6)
     proto_item_append_text(proto_tree_get_parent(tree), " (Name=%s)", __KAFKA_STRING__(topic));
+    __KAFKA_SINCE_VERSION__(7)
+    proto_item_append_text(proto_tree_get_parent(tree), " (Name=%s, ID=%s)",
+                           __KAFKA_STRING__(topic), __KAFKA_UUID__(topic_id_offset));
     return offset;
 }
 

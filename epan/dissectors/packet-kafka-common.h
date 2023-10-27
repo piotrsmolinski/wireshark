@@ -75,6 +75,8 @@ typedef struct kafka_buffer_ref {
 
 #define __KAFKA_STRING__(x) \
 	kafka_tvb_get_string(kinfo->pinfo->pool, tvb, x.offset, x.length)
+#define __KAFKA_UUID__(x) \
+	kafka_tvb_get_uuid(kinfo->pinfo->pool, tvb, x)
 
 WS_DLL_PUBLIC gint8*
 kafka_tvb_get_string(
