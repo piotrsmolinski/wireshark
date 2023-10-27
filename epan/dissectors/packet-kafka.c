@@ -351,6 +351,7 @@ static expert_field ei_kafka_request_missing = EI_INIT;
 static expert_field ei_kafka_duplicate_correlation_id = EI_INIT;
 static expert_field ei_kafka_unknown_api_key = EI_INIT;
 static expert_field ei_kafka_unsupported_api_version = EI_INIT;
+static expert_field ei_kafka_error_response = EI_INIT;
 static expert_field ei_kafka_bad_string_length = EI_INIT;
 static expert_field ei_kafka_bad_bytes_length = EI_INIT;
 static expert_field ei_kafka_bad_array_length = EI_INIT;
@@ -2040,10 +2041,11 @@ dissect_kafka_error_ret
 
     offset = dissect_kafka_int16_ret(tvb, kinfo, tree, offset, hf_kafka_error, &error);
 
-    /* Show error in Info column */
     if (error != 0) {
-        col_append_fstr(kinfo->pinfo->cinfo, COL_INFO,
-                        " [%s]", kafka_error_to_str(error));
+
+        proto_item_append_text(proto_tree_get_parent(tree), " [%s]", kafka_error_to_str(error));
+        expert_add_info_format(kinfo->pinfo, proto_tree_get_parent(tree), &ei_kafka_error_response, "%s",
+                               kafka_error_to_str(error));
     }
 
     if (ret) {
@@ -8790,6 +8792,8 @@ proto_register_kafka_expert_module(const int proto) {
                     { "kafka.unknown_api_key", PI_UNDECODED, PI_WARN, "Unknown API key", EXPFILL }},
             { &ei_kafka_unsupported_api_version,
                     { "kafka.unsupported_api_version", PI_UNDECODED, PI_WARN, "Unsupported API version", EXPFILL }},
+            { &ei_kafka_error_response,
+                    { "kafka.error_response", PI_RESPONSE_CODE, PI_NOTE, "Error code in response", EXPFILL }},
             { &ei_kafka_bad_string_length,
                     { "kafka.bad_string_length", PI_MALFORMED, PI_WARN, "Invalid string length field", EXPFILL }},
             { &ei_kafka_bad_bytes_length,
