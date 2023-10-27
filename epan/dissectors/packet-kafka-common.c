@@ -567,26 +567,6 @@ tvb_get_array_size(
  * Dissect array. Use 'flexible' flag to select which variant should be used.
  */
 int
-dissect_kafka_array(
-        proto_tree *tree,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int offset,
-        dissect_kafka_array_element_cb func,
-        int *p_count
-)
-{
-    int count, count_len;
-    count = tvb_get_array_size(tvb, kinfo, offset, &count_len);
-    offset += count_len;
-    for (int i=0; i<count; i++) {
-        offset = func(tvb, kinfo, tree, offset);
-    }
-    if (p_count != NULL) *p_count = count;
-    return offset;
-}
-
-int
 dissect_kafka_array_simple(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
@@ -603,6 +583,10 @@ dissect_kafka_array_simple(
 
     count = tvb_get_array_size(tvb, kinfo, offset, &count_len);
     offset += count_len;
+
+    if (count < 0) {
+        return offset;
+    }
 
     if (collection_label) {
         collection_tree = proto_tree_add_subtree(tree, tvb, offset, -1, collection_ett, &collection_ti, collection_label);
@@ -633,6 +617,10 @@ dissect_kafka_array_object(
 
     count = tvb_get_array_size(tvb, kinfo, offset, &count_len);
     offset += count_len;
+
+    if (count < 0) {
+        return offset;
+    }
 
     if (collection_label) {
         collection_tree = proto_tree_add_subtree(tree, tvb, offset, -1, collection_ett, &collection_ti, collection_label);

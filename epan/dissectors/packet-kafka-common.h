@@ -337,23 +337,6 @@ dissect_kafka_object(
         dissect_kafka_object_content_cb func
 );
 
-typedef int(*dissect_kafka_array_element_cb)(
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        proto_tree *tree,
-        int offset
-);
-
-WS_DLL_PUBLIC int
-dissect_kafka_array(
-        proto_tree *tree,
-        tvbuff_t *tvb,
-        kafka_packet_info_t *kinfo,
-        int offset,
-        dissect_kafka_array_element_cb element_cb,
-        int *p_count
-);
-
 typedef int(*dissect_kafka_array_simple_cb)(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
