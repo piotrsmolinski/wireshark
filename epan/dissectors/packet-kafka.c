@@ -6501,7 +6501,7 @@ dissect_kafka_describe_cluster_response
     offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_cluster_id);
     offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_controller_id);
     offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
-                                        -1, NULL, ett_kafka_broker, "Broker",
+                                        ett_kafka_brokers, "Brokers", ett_kafka_broker, "Broker",
                                         &dissect_kafka_describe_cluster_response_broker);
     offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_cluster_authorized_ops);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
