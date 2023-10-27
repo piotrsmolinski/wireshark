@@ -5992,6 +5992,7 @@ static int
 dissect_kafka_end_quorum_epoch_request
 (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
+    offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_cluster_id);
     offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
                                         -1, NULL, ett_kafka_topic, "Topic",
                                         &dissect_kafka_end_quorum_epoch_request_topic);
