@@ -589,7 +589,7 @@ dissect_kafka_array_simple(
     }
 
     if (collection_label) {
-        collection_tree = proto_tree_add_subtree(tree, tvb, offset, -1, collection_ett, &collection_ti, collection_label);
+        collection_tree = proto_tree_add_subtree(tree, tvb, offset, 0, collection_ett, &collection_ti, collection_label);
     }
     for (int i=0; i<count; i++) {
         offset = func(tvb, kinfo, collection_label ? collection_tree : tree, offset, item_hf);
