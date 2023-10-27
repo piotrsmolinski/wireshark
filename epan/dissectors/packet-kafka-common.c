@@ -51,15 +51,30 @@ kafka_tvb_get_uuid(
         tvbuff_t *tvb,
         int offset)
 {
+    gint8 uuid[16];
     gint8 *result;
     int i, j;
+    gboolean empty = 1;
+
+    tvb_memcpy(tvb, uuid, offset, 16);
+
+    for (i = 0; i < 16; i++) {
+        if (uuid[i]) {
+            empty = 0;
+            break;
+        }
+    }
+
+    if (empty) {
+        return "[ Empty ]";
+    }
 
     // to avoid boundary checking, allocate the padding and use it later as string termination
     result = wmem_alloc(pool, 24);
     for (i = 0, j = 0; i < 16; ) {
-        guint32 a = i < 16 ? tvb_get_gint8(tvb, offset + i++) : 0;
-        guint32 b = i < 16 ? tvb_get_gint8(tvb, offset + i++) : 0;
-        guint32 c = i < 16 ? tvb_get_gint8(tvb, offset + i++) : 0;
+        guint32 a = i < 16 ? uuid[i++] : 0;
+        guint32 b = i < 16 ? uuid[i++] : 0;
+        guint32 c = i < 16 ? uuid[i++] : 0;
         guint32 triple = (a << 16) + (b << 8) + c;
         result[j++] = base64_table[(triple >> 3 * 6) & 0x3f];
         result[j++] = base64_table[(triple >> 2 * 6) & 0x3f];
