@@ -29,7 +29,6 @@
 #endif
 #include "packet-tcp.h"
 #include "packet-tls.h"
-#include "packet-dcerpc.h"
 #include "packet-gssapi.h"
 
 #include "packet-kafka-common.h"
@@ -5002,7 +5001,6 @@ dissect_kafka_sasl_authenticate_request
     proto_item *sasl_token_item;
     proto_tree *sasl_token_tree;
 
-
     kafka_conv_info = dissect_kafka_get_conv_info(kinfo->pinfo);
 
     offset = dissect_kafka_bytes_ret(tvb, kinfo, tree, offset, hf_kafka_sasl_auth_bytes, &token);
@@ -5057,6 +5055,8 @@ dissect_kafka_sasl_authenticate_response
     kafka_conv_info_t *kafka_conv_info;
     kafka_buffer_ref token;
     tvbuff_t *token_tvb;
+    proto_item *sasl_token_item;
+    proto_tree *sasl_token_tree;
 
     kafka_conv_info = dissect_kafka_get_conv_info(kinfo->pinfo);
 
