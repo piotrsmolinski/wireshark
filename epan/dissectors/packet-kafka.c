@@ -29,6 +29,8 @@
 #endif
 #include "packet-tcp.h"
 #include "packet-tls.h"
+#include "packet-dcerpc.h"
+#include "packet-gssapi.h"
 
 #include "packet-kafka-common.h"
 
@@ -36,6 +38,9 @@ void proto_register_kafka(void);
 void proto_reg_handoff_kafka(void);
 
 static int proto_kafka = -1;
+
+static dissector_handle_t kafka_handle;
+static dissector_handle_t gssapi_handle;
 
 static int hf_kafka_len = -1;
 static int hf_kafka_api_key = -1;
@@ -267,6 +272,10 @@ static int hf_kafka_current_txn_start_offset = -1;
 static int hf_kafka_incarnation_id = -1;
 static int hf_kafka_vote_granted = -1;
 
+static int hf_sasl_plain_authzid = -1;
+static int hf_sasl_plain_authcid = -1;
+static int hf_sasl_plain_passwd = -1;
+
 static int ett_kafka = -1;
 static int ett_kafka_batch = -1;
 static int ett_kafka_message = -1;
@@ -346,6 +355,7 @@ static int ett_kafka_feature = -1;
 static int ett_kafka_producer = -1;
 static int ett_kafka_listener = -1;
 static int ett_kafka_transaction = -1;
+static int ett_kafka_sasl_token = -1;
 
 static expert_field ei_kafka_request_missing = EI_INIT;
 static expert_field ei_kafka_duplicate_correlation_id = EI_INIT;
@@ -3717,7 +3727,12 @@ static int
 dissect_kafka_sasl_handshake_request
 (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_sasl_mechanism);
+    kafka_buffer_ref auth_mechanism;
+    offset = dissect_kafka_string_ret(tvb, kinfo, tree, offset, hf_kafka_sasl_mechanism, &auth_mechanism);
+    if (auth_mechanism.length >= 0) {
+        dissect_kafka_get_conv_info(kinfo->pinfo)->sasl_auth_mech =
+                tvb_get_string_enc(wmem_file_scope(), tvb, auth_mechanism.offset, auth_mechanism.length, ENC_UTF_8);
+    }
     return offset;
 }
 
@@ -4981,7 +4996,56 @@ static int
 dissect_kafka_sasl_authenticate_request
 (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
-    offset = dissect_kafka_bytes(tvb, kinfo, tree, offset, hf_kafka_sasl_auth_bytes);
+    kafka_conv_info_t *kafka_conv_info;
+    kafka_buffer_ref token;
+    tvbuff_t *token_tvb;
+    proto_item *sasl_token_item;
+    proto_tree *sasl_token_tree;
+
+
+    kafka_conv_info = dissect_kafka_get_conv_info(kinfo->pinfo);
+
+    offset = dissect_kafka_bytes_ret(tvb, kinfo, tree, offset, hf_kafka_sasl_auth_bytes, &token);
+    if (token.length > 0) {
+        token_tvb = tvb_new_subset_length(tvb, token.offset, token.length);
+        if (!kafka_conv_info->sasl_auth_mech) {
+            // no-op
+        } else if (strcmp(kafka_conv_info->sasl_auth_mech, "PLAIN") == 0) {
+
+            sasl_token_tree = proto_tree_add_subtree(tree, token_tvb, 0, -1, ett_kafka_sasl_token, &sasl_token_item, "SASL PLAIN");
+
+            // https://www.rfc-editor.org/rfc/rfc4616
+            int authzid_offset, authzid_length;
+            int authcid_offset, authcid_length;
+            int passwd_offset, passwd_length;
+            int i = 0;
+            authzid_offset = i;
+            while (i<token.length && tvb_get_gint8(token_tvb, i++));
+            THROW_MESSAGE_ON(i >= token.length, ReportedBoundsError, "Invalid SASL token");
+            authzid_length = i - authzid_offset - 1;
+            authcid_offset = i;
+            while (i<token.length && tvb_get_gint8(token_tvb, i++));
+            THROW_MESSAGE_ON(i >= token.length, ReportedBoundsError, "Invalid SASL token");
+            authcid_length = i - authcid_offset - 1;
+            passwd_offset = i;
+            while (i<token.length && tvb_get_gint8(token_tvb, i++));
+            THROW_MESSAGE_ON(i < token.length, ReportedBoundsError, "Invalid SASL token");
+            passwd_length = i - passwd_offset;
+            proto_tree_add_string(sasl_token_tree, hf_sasl_plain_authzid, token_tvb, authzid_offset, authzid_length,
+                      tvb_get_string_enc(kinfo->pinfo->pool, token_tvb, authzid_offset, authzid_length, ENC_UTF_8));
+            proto_tree_add_string(sasl_token_tree, hf_sasl_plain_authcid, token_tvb, authcid_offset, authcid_length,
+                      tvb_get_string_enc(kinfo->pinfo->pool, token_tvb, authcid_offset, authcid_length, ENC_UTF_8));
+            proto_tree_add_string(sasl_token_tree, hf_sasl_plain_passwd, token_tvb, passwd_offset, passwd_length,
+                      tvb_get_string_enc(kinfo->pinfo->pool, token_tvb, passwd_offset, passwd_length, ENC_UTF_8));
+        } else if (strcmp(kafka_conv_info->sasl_auth_mech, "GSSAPI") == 0) {
+            sasl_token_tree = proto_tree_add_subtree(tree, token_tvb, 0, -1, ett_kafka_sasl_token, &sasl_token_item, "SASL GSSAPI");
+            call_dissector(gssapi_handle, token_tvb, kinfo->pinfo, sasl_token_tree);
+        } else if (strcmp(kafka_conv_info->sasl_auth_mech, "SCRAM-SHA-256") == 0) {
+        } else if (strcmp(kafka_conv_info->sasl_auth_mech, "SCRAM-SHA-512") == 0) {
+        } else if (strcmp(kafka_conv_info->sasl_auth_mech, "OAUTHBEARER") == 0) {
+        } else {
+        }
+    }
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
     return offset;
 }
@@ -4990,9 +5054,29 @@ static int
 dissect_kafka_sasl_authenticate_response
 (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
+    kafka_conv_info_t *kafka_conv_info;
+    kafka_buffer_ref token;
+    tvbuff_t *token_tvb;
+
+    kafka_conv_info = dissect_kafka_get_conv_info(kinfo->pinfo);
+
     offset = dissect_kafka_error(tvb, kinfo, tree, offset);
     offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_error_message);
-    offset = dissect_kafka_bytes(tvb, kinfo, tree, offset, hf_kafka_sasl_auth_bytes);
+    offset = dissect_kafka_bytes_ret(tvb, kinfo, tree, offset, hf_kafka_sasl_auth_bytes, &token);
+    if (token.length > 0) {
+        token_tvb = tvb_new_subset_length(tvb, token.offset, token.length);
+        if (!kafka_conv_info->sasl_auth_mech) {
+            // no-op
+        } else if (strcmp(kafka_conv_info->sasl_auth_mech, "PLAIN") == 0) {
+        } else if (strcmp(kafka_conv_info->sasl_auth_mech, "GSSAPI") == 0) {
+            sasl_token_tree = proto_tree_add_subtree(tree, token_tvb, 0, -1, ett_kafka_sasl_token, &sasl_token_item, "SASL GSSAPI");
+            call_dissector(gssapi_handle, token_tvb, kinfo->pinfo, sasl_token_tree);
+        } else if (strcmp(kafka_conv_info->sasl_auth_mech, "SCRAM-SHA-256") == 0) {
+        } else if (strcmp(kafka_conv_info->sasl_auth_mech, "SCRAM-SHA-512") == 0) {
+        } else if (strcmp(kafka_conv_info->sasl_auth_mech, "OAUTHBEARER") == 0) {
+        } else {
+        }
+    }
     __KAFKA_SINCE_VERSION__(1)
     offset = dissect_kafka_int64(tvb, kinfo, tree, offset, hf_kafka_session_lifetime_ms);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
@@ -8707,6 +8791,21 @@ proto_register_kafka_protocol_fields(int protocol)
                         FT_BOOLEAN, BASE_NONE, 0, 0,
                         NULL, HFILL }
         },
+        { &hf_sasl_plain_authzid,
+                { "authzid", "kafka.sasl_authzid",
+                        FT_STRING, BASE_NONE, 0, 0,
+                        "Authorization Identity", HFILL }
+        },
+        { &hf_sasl_plain_authcid,
+                { "authcid", "kafka.sasl_authcid",
+                        FT_STRING, BASE_NONE, 0, 0,
+                        "Authentication Identity", HFILL }
+        },
+        { &hf_sasl_plain_passwd,
+                { "passwd", "kafka.sasl_passwd",
+                        FT_STRING, BASE_NONE, 0, 0,
+                        "Password", HFILL }
+        },
     };
 
     proto_register_field_array(protocol, hf, array_length(hf));
@@ -8796,6 +8895,7 @@ proto_register_kafka_protocol_subtrees(const int proto _U_)
         &ett_kafka_producer,
         &ett_kafka_listener,
         &ett_kafka_transaction,
+        &ett_kafka_sasl_token,
     };
     proto_register_subtree_array(ett, array_length(ett));
 }
@@ -8878,9 +8978,8 @@ void
 proto_reg_handoff_kafka(void)
 {
 
-    static dissector_handle_t kafka_handle;
-
     kafka_handle = register_dissector("kafka", dissect_kafka_tcp, proto_kafka);
+    gssapi_handle = find_dissector_add_dependency("gssapi", proto_kafka);
 
     dissector_add_uint_range_with_preference("tcp.port", KAFKA_TCP_DEFAULT_RANGE, kafka_handle);
     ssl_dissector_add(0, kafka_handle);
