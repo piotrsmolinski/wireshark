@@ -1053,6 +1053,9 @@ static guint XXH32(const void* input, size_t len, guint seed)
 }
 #endif /* HAVE_LZ4FRAME_H */
 
+static kafka_conv_info_t *
+dissect_kafka_get_conv_info(packet_info *pinfo);
+
 static const char *
 kafka_error_to_str(kafka_error_t error)
 {
@@ -6819,15 +6822,7 @@ dissect_kafka_allocate_producer_ids_response
 static wmem_multimap_t *
 dissect_kafka_get_match_map(packet_info *pinfo)
 {
-    conversation_t         *conversation;
-    wmem_multimap_t        *match_map;
-    conversation = find_or_create_conversation(pinfo);
-    match_map    = (wmem_multimap_t *) conversation_get_proto_data(conversation, proto_kafka);
-    if (match_map == NULL) {
-        match_map = wmem_multimap_new(wmem_file_scope(), g_direct_hash, g_direct_equal);
-        conversation_add_proto_data(conversation, proto_kafka, match_map);
-    }
-    return match_map;
+    return dissect_kafka_get_conv_info(pinfo)->match_map;
 }
 
 static gboolean
@@ -6843,8 +6838,32 @@ dissect_kafka_insert_match(packet_info *pinfo, guint32 correlation_id, kafka_pro
 static kafka_proto_data_t *
 dissect_kafka_lookup_match(packet_info *pinfo, guint32 correlation_id)
 {
+    kafka_proto_data_t *match = (kafka_proto_data_t*)wmem_multimap_lookup32(dissect_kafka_get_match_map(pinfo), GUINT_TO_POINTER(correlation_id), pinfo->num);
+    return match;
+}
+
+static kafka_proto_data_t *
+dissect_kafka_lookup_match_le(packet_info *pinfo, guint32 correlation_id)
+{
     kafka_proto_data_t *match = (kafka_proto_data_t*)wmem_multimap_lookup32_le(dissect_kafka_get_match_map(pinfo), GUINT_TO_POINTER(correlation_id), pinfo->num);
     return match;
+}
+
+static kafka_conv_info_t *
+dissect_kafka_get_conv_info(packet_info *pinfo)
+{
+    conversation_t         *conversation;
+    kafka_conv_info_t      *conv_info;
+
+    conversation = find_or_create_conversation(pinfo);
+    conv_info    = (kafka_conv_info_t *) conversation_get_proto_data(conversation, proto_kafka);
+    if (conv_info == NULL) {
+        conv_info = wmem_new(wmem_file_scope(), kafka_conv_info_t);
+        conv_info->sasl_auth_mech = NULL;
+        conv_info->match_map = wmem_multimap_new(wmem_file_scope(), g_direct_hash, g_direct_equal);
+        conversation_add_proto_data(conversation, proto_kafka, conv_info);
+    }
+    return conv_info;
 }
 
 kafka_packet_info_t *
@@ -7191,7 +7210,7 @@ dissect_kafka(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void* data _U
         /* in the response PDU the correlation id comes directly after frame length */
         pdu_correlation_id = tvb_get_ntohl(tvb, offset);
 
-        proto_data = dissect_kafka_lookup_match(pinfo, pdu_correlation_id);
+        proto_data = dissect_kafka_lookup_match_le(pinfo, pdu_correlation_id);
         if (proto_data == NULL) {
             proto_tree_add_item(kafka_tree, hf_kafka_correlation_id, tvb, offset, 4, ENC_BIG_ENDIAN);
             col_set_str(pinfo->cinfo, COL_INFO, "Kafka Response (Undecoded, Request Missing)");
