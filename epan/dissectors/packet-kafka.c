@@ -5019,15 +5019,15 @@ dissect_kafka_sasl_authenticate_request
             int i = 0;
             authzid_offset = i;
             while (i<token.length && tvb_get_gint8(token_tvb, i++));
-            THROW_MESSAGE_ON(i >= token.length, ReportedBoundsError, "Invalid SASL token");
+            THROW_MESSAGE_ON(i >= token.length, ReportedBoundsError, "Invalid SASL PLAIN token");
             authzid_length = i - authzid_offset - 1;
             authcid_offset = i;
             while (i<token.length && tvb_get_gint8(token_tvb, i++));
-            THROW_MESSAGE_ON(i >= token.length, ReportedBoundsError, "Invalid SASL token");
+            THROW_MESSAGE_ON(i >= token.length, ReportedBoundsError, "Invalid SASL PLAIN token");
             authcid_length = i - authcid_offset - 1;
             passwd_offset = i;
             while (i<token.length && tvb_get_gint8(token_tvb, i++));
-            THROW_MESSAGE_ON(i < token.length, ReportedBoundsError, "Invalid SASL token");
+            THROW_MESSAGE_ON(i < token.length, ReportedBoundsError, "Invalid SASL PLAIN token");
             passwd_length = i - passwd_offset;
             proto_tree_add_string(sasl_token_tree, hf_sasl_plain_authzid, token_tvb, authzid_offset, authzid_length,
                       tvb_get_string_enc(kinfo->pinfo->pool, token_tvb, authzid_offset, authzid_length, ENC_UTF_8));
@@ -5855,8 +5855,8 @@ dissect_kafka_alter_user_scram_credentials_request_upsert
     offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_scram_user_name);
     offset = dissect_kafka_int8(tvb, kinfo, tree, offset, hf_kafka_scram_mechanism);
     offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_scram_iterations);
-    offset = dissect_kafka_bytes(tvb, kinfo, tree, offset, hf_kafka_scram_salt);
-    offset = dissect_kafka_bytes(tvb, kinfo, tree, offset, hf_kafka_scram_salted_password);
+    offset = dissect_kafka_base64(tvb, kinfo, tree, offset, hf_kafka_scram_salt);
+    offset = dissect_kafka_base64(tvb, kinfo, tree, offset, hf_kafka_scram_salted_password);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
     return offset;
 }
@@ -8413,7 +8413,7 @@ proto_register_kafka_protocol_fields(int protocol)
         },
         { &hf_kafka_sasl_auth_bytes,
             { "SASL Authentication Bytes", "kafka.sasl_authentication",
-                FT_BYTES, BASE_NONE, 0, 0,
+                FT_BYTES, BASE_SHOW_ASCII_PRINTABLE, 0, 0,
                 NULL, HFILL }
         },
         { &hf_kafka_session_lifetime_ms,
@@ -8698,7 +8698,7 @@ proto_register_kafka_protocol_fields(int protocol)
         },
         { &hf_kafka_scram_user_name,
                 { "User Name", "kafka.scram_user_name",
-                        FT_BOOLEAN, BASE_NONE, 0, 0,
+                        FT_STRING, BASE_NONE, 0, 0,
                         NULL, HFILL }
         },
         { &hf_kafka_scram_mechanism,
@@ -8713,12 +8713,12 @@ proto_register_kafka_protocol_fields(int protocol)
         },
         { &hf_kafka_scram_salt,
                 { "Salt", "kafka.scram_salt",
-                        FT_BYTES, BASE_NONE, 0, 0,
+                        FT_STRING, BASE_NONE, 0, 0,
                         NULL, HFILL }
         },
         { &hf_kafka_scram_salted_password,
                 { "Salted Password", "kafka.scram_salted_password",
-                        FT_BYTES, BASE_NONE, 0, 0,
+                        FT_STRING, BASE_NONE, 0, 0,
                         NULL, HFILL }
         },
         { &hf_kafka_isr_version,

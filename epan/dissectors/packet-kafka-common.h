@@ -279,7 +279,7 @@ dissect_kafka_compact_bytes_ret(
 );
 
 /*
- * Dissect string. Depending on the 'flexible' flag use old style or compact coding.
+ * Dissect bytes. Depending on the 'flexible' flag use old style or compact coding.
  */
 WS_DLL_PUBLIC int
 dissect_kafka_bytes_ret(
@@ -293,6 +293,25 @@ dissect_kafka_bytes_ret(
 
 WS_DLL_PUBLIC int
 dissect_kafka_bytes(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset,
+        int hf_item
+);
+
+WS_DLL_PUBLIC int
+dissect_kafka_base64_ret(
+        tvbuff_t *tvb,
+        kafka_packet_info_t *kinfo,
+        proto_tree *tree,
+        int offset,
+        int hf_item,
+        kafka_buffer_ref *p_buffer
+);
+
+WS_DLL_PUBLIC int
+dissect_kafka_base64(
         tvbuff_t *tvb,
         kafka_packet_info_t *kinfo,
         proto_tree *tree,
