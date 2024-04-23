@@ -459,7 +459,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_PRODUCE,                       "Produce",
       0, 10, 9 },
     { KAFKA_FETCH,                         "Fetch",
-      0, 15, 12 },
+      0, 16, 12 },
     { KAFKA_OFFSETS,                       "Offsets",
       0, 8, 6 },
     { KAFKA_METADATA,                      "Metadata",
@@ -2126,6 +2126,32 @@ dissect_kafka_offset_fetch_response_group
 }
 
 static int
+dissect_kafka_fetch_response_partition_node_endpoint
+        (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+    offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_broker_nodeid);
+    offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_broker_host);
+    offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_broker_port);
+    offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_rack);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    return offset;
+}
+
+static int
+dissect_kafka_fetch_response_tagged_fields
+        (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset, guint64 tag)
+{
+    if (tag == 0) {
+        offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
+                                            -1, NULL, ett_kafka_brokers, "Node Endpoints",
+                                            &dissect_kafka_fetch_response_partition_node_endpoint);
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+static int
 dissect_kafka_offset_fetch_response
 (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
@@ -2145,7 +2171,8 @@ dissect_kafka_offset_fetch_response
                                         -1, NULL,
                                         ett_kafka_group, "Group",
                                         &dissect_kafka_offset_fetch_response_group);
-    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, &dissect_kafka_fetch_response_tagged_fields);
 
     return offset;
 }
