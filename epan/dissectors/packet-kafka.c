@@ -167,6 +167,7 @@ static int hf_kafka_finalized_features_epoch = -1;
 static int hf_kafka_session_timeout = -1;
 static int hf_kafka_rebalance_timeout = -1;
 static int hf_kafka_member_id = -1;
+static int hf_kafka_member_epoch = -1;
 static int hf_kafka_protocol_type = -1;
 static int hf_kafka_protocol_name = -1;
 static int hf_kafka_protocol_metadata = -1;
@@ -477,7 +478,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_OFFSET_COMMIT,                 "OffsetCommit",
       0, 9, 8 },
     { KAFKA_OFFSET_FETCH,                  "OffsetFetch",
-      0, 8, 6 },
+      0, 9, 6 },
     { KAFKA_FIND_COORDINATOR,              "FindCoordinator",
       0, 4, 3 },
     { KAFKA_JOIN_GROUP,                    "JoinGroup",
@@ -2029,6 +2030,10 @@ dissect_kafka_offset_fetch_request_group
 {
 
     offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_consumer_group);
+    __KAFKA_SINCE_VERSION__(9)
+    offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_member_id);
+    __KAFKA_SINCE_VERSION__(9)
+    offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_member_epoch);
     offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
                                         -1, NULL,
                                         ett_kafka_topic, "Topic",
@@ -8376,6 +8381,11 @@ proto_register_kafka_protocol_fields(int protocol)
         { &hf_kafka_member_id,
             { "Consumer Group Member ID", "kafka.member_id",
                FT_STRING, BASE_NONE, 0, 0,
+               NULL, HFILL }
+        },
+        { &hf_kafka_member_epoch,
+            { "Consumer Group Member Epoch", "kafka.member_epoch",
+               FT_INT32, BASE_DEC, 0, 0,
                NULL, HFILL }
         },
         { &hf_kafka_protocol_type,
