@@ -475,7 +475,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_CONTROLLED_SHUTDOWN,           "ControlledShutdown",
       0, 3, 3 },
     { KAFKA_OFFSET_COMMIT,                 "OffsetCommit",
-      0, 8, 8 },
+      0, 9, 8 },
     { KAFKA_OFFSET_FETCH,                  "OffsetFetch",
       0, 8, 6 },
     { KAFKA_FIND_COORDINATOR,              "FindCoordinator",
