@@ -494,7 +494,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_DESCRIBE_GROUPS,               "DescribeGroups",
       0, 5, 5 },
     { KAFKA_LIST_GROUPS,                   "ListGroups",
-      0, 4, 3 },
+      0, 5, 3 },
     { KAFKA_SASL_HANDSHAKE,                "SaslHandshake",
       0, 1, -1 },
     { KAFKA_API_VERSIONS,                  "ApiVersions",
