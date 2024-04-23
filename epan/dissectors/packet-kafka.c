@@ -1960,6 +1960,10 @@ dissect_kafka_records(proto_tree *tree, tvbuff_t *tvb, kafka_packet_info_t *kinf
         offset += 4;
     }
 
+    if (message_set_size <= 0) {
+        return offset;
+    }
+
     offset = dissect_kafka_message_set(tvb, kinfo, tree, offset, message_set_size, KAFKA_MESSAGE_CODEC_NONE);
 
     return offset;
