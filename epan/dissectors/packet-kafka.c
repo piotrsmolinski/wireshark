@@ -579,7 +579,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_FETCH_SHAPSHOT,                 "FetchSnapshot",
       0, 0, 0 },
     { KAFKA_DESCRIBE_CLUSTER,               "DescribeCluster",
-      0, 0, 0 },
+      0, 1, 0 },
     { KAFKA_DESCRIBE_PRODUCERS,             "DescribeProducers",
       0, 0, 0 },
     { KAFKA_BROKER_REGISTRATION,            "BrokerRegistration",
@@ -913,6 +913,13 @@ static const value_string config_operations[] = {
 static const value_string election_types[] = {
     { 0, "Preferred" },
     { 1, "Unclean" },
+    { 0, NULL }
+};
+
+static const value_string endpoint_types[] = {
+    { 0, "Unknown" },
+    { 1, "Brokers" },
+    { 2, "Controllers" },
     { 0, NULL }
 };
 
@@ -6648,6 +6655,8 @@ dissect_kafka_describe_cluster_request
 (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
     offset = dissect_kafka_int8(tvb, kinfo, tree, offset, hf_kafka_include_cluster_authorized_ops);
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_int8(tvb, kinfo, tree, offset, hf_kafka_endpoint_type);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
     return offset;
 }
@@ -6671,6 +6680,8 @@ dissect_kafka_describe_cluster_response
     offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_throttle_time);
     offset = dissect_kafka_error(tvb, kinfo, tree, offset);
     offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_error_message);
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_int8(tvb, kinfo, tree, offset, hf_kafka_endpoint_type);
     offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_cluster_id);
     offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_controller_id);
     offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
@@ -8691,6 +8702,11 @@ proto_register_kafka_protocol_fields(int protocol)
         { &hf_kafka_include_cluster_authorized_ops,
             { "Include Cluster Authorized Operations", "kafka.include_cluster_authorized_ops",
                 FT_BOOLEAN, BASE_NONE, 0, 0,
+                NULL, HFILL }
+        },
+        { &hf_kafka_endpoint_type,
+            { "The endpoint type to describe", "kafka.endpoint_type",
+                FT_INT8, BASE_DEC, VALS(endpoint_types), 0,
                 NULL, HFILL }
         },
         { &hf_kafka_include_topic_authorized_ops,
