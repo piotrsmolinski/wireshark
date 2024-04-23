@@ -724,6 +724,10 @@ static const value_string kafka_errors[] = {
     { 114, "The request was sent to an endpoint of the wrong type." },
     { 115, "This endpoint type is not supported yet." },
     { 116, "This controller ID is not known." },
+    { 117, "Client sent a push telemetry request with an invalid or outdated subscription ID." },
+    { 118, "Client sent a push telemetry request larger than the maximum size the broker will accept." },
+    { 119, "The controller has considered the broker registration to be invalid." },
+    { 120, "The server encountered an error with the transaction. The client can abort the transaction to continue using this transactional ID." },
     { 0, NULL }
 };
 
