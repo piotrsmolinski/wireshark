@@ -115,6 +115,7 @@ static int hf_kafka_coordinator_key = -1;
 static int hf_kafka_coordinator_type = -1;
 static int hf_kafka_group_operation_reason = -1;
 static int hf_kafka_group_state = -1;
+static int hf_kafka_group_type = -1;
 static int hf_kafka_offset = -1;
 static int hf_kafka_offset_time = -1;
 static int hf_kafka_max_offsets = -1;
@@ -3791,6 +3792,8 @@ dissect_kafka_list_groups_request
 {
     __KAFKA_SINCE_VERSION__(4)
     offset = dissect_kafka_array_simple(tvb, kinfo, tree, offset, -1, NULL, &dissect_kafka_string, hf_kafka_group_state);
+    __KAFKA_SINCE_VERSION__(5)
+    offset = dissect_kafka_array_simple(tvb, kinfo, tree, offset, -1, NULL, &dissect_kafka_string, hf_kafka_group_type);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
     return offset;
 }
@@ -3803,6 +3806,8 @@ dissect_kafka_list_groups_response_group
     offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_protocol_type);
     __KAFKA_SINCE_VERSION__(4)
     offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_group_state);
+    __KAFKA_SINCE_VERSION__(5)
+    offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_group_type);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
     return offset;
 }
@@ -8375,6 +8380,11 @@ proto_register_kafka_protocol_fields(int protocol)
         },
         { &hf_kafka_group_state,
             { "State", "kafka.group_state",
+               FT_STRING, BASE_NONE, 0, 0,
+               NULL, HFILL }
+        },
+        { &hf_kafka_group_type,
+            { "Type", "kafka.group_type",
                FT_STRING, BASE_NONE, 0, 0,
                NULL, HFILL }
         },
