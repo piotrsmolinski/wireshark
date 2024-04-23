@@ -83,6 +83,7 @@ static int hf_kafka_producer_id = -1;
 static int hf_kafka_producer_id_filter = -1;
 static int hf_kafka_producer_id_start = -1;
 static int hf_kafka_producer_id_length = -1;
+static int hf_kafka_duration_filter = -1;
 static int hf_kafka_producer_epoch = -1;
 static int hf_kafka_message_size = -1;
 static int hf_kafka_message_crc = -1;
@@ -232,6 +233,7 @@ static int hf_kafka_token_max_timestamp = -1;
 static int hf_kafka_token_id = -1;
 static int hf_kafka_token_hmac = -1;
 static int hf_kafka_include_cluster_authorized_ops = -1;
+static int hf_kafka_endpoint_type = -1;
 static int hf_kafka_include_topic_authorized_ops = -1;
 static int hf_kafka_include_group_authorized_ops = -1;
 static int hf_kafka_cluster_authorized_ops = -1;
@@ -589,7 +591,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_DESCRIBE_TRANSACTIONS,          "DescribeTransactions",
       0, 0, 0 },
     { KAFKA_LIST_TRANSACTIONS,              "ListTransactions",
-      0, 0, 0 },
+      0, 1, 0 },
     { KAFKA_ALLOCATE_PRODUCER_IDS,          "AllocateProducerIds",
       0, 0, 0 },
 };
@@ -6928,7 +6930,9 @@ dissect_kafka_list_transactions_request
                                         &dissect_kafka_string, hf_kafka_transaction_state_filter);
     offset = dissect_kafka_array_simple(tvb, kinfo, tree, offset,
                                         -1, NULL,
-                                        &dissect_kafka_string, hf_kafka_producer_id_filter);
+                                        &dissect_kafka_int64, hf_kafka_producer_id_filter);
+    __KAFKA_SINCE_VERSION__(1)
+    offset = dissect_kafka_int64(tvb, kinfo, tree, offset, hf_kafka_duration_filter);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
     return offset;
 }
@@ -7915,6 +7919,11 @@ proto_register_kafka_protocol_fields(int protocol)
         },
         { &hf_kafka_producer_id_filter,
                 { "Producer ID", "kafka.producer_id_filter",
+                        FT_INT64, BASE_DEC, 0, 0,
+                        NULL, HFILL }
+        },
+        { &hf_kafka_duration_filter,
+                { "Min Duration", "kafka.transaction_duration_filter",
                         FT_INT64, BASE_DEC, 0, 0,
                         NULL, HFILL }
         },
