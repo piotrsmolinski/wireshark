@@ -457,7 +457,7 @@ static expert_field ei_kafka_pdu_length_mismatch = EI_INIT;
  */
 static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_PRODUCE,                       "Produce",
-      0, 9, 9 },
+      0, 10, 9 },
     { KAFKA_FETCH,                         "Fetch",
       0, 15, 12 },
     { KAFKA_OFFSETS,                       "Offsets",
@@ -2818,6 +2818,31 @@ dissect_kafka_produce_request
 }
 
 static int
+dissect_kafka_produce_response_partition_current_leader
+        (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+    // https://github.com/apache/kafka/blob/3.7.0/clients/src/main/resources/common/message/ProduceResponse.json#L65-L69
+    offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_broker_nodeid);
+    offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_broker_epoch);
+//    offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_current_leader_id);
+//    offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_current_leader_epoch);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    return offset;
+}
+
+static int
+dissect_kafka_produce_response_partition_tagged_fields
+        (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset, guint64 tag)
+{
+    if (tag == 0) {
+        offset = dissect_kafka_produce_response_partition_current_leader(tvb, kinfo, tree, offset);
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+static int
 dissect_kafka_produce_response_partition_record_error
 (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
@@ -2825,8 +2850,8 @@ dissect_kafka_produce_response_partition_record_error
     offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_batch_index_error_message);
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
     return offset;
-
 }
+
 static int
 dissect_kafka_produce_response_partition
 (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
@@ -2844,7 +2869,7 @@ dissect_kafka_produce_response_partition
                                         &dissect_kafka_produce_response_partition_record_error);
     __KAFKA_SINCE_VERSION__(8)
     offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_error_message);
-    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, &dissect_kafka_produce_response_partition_tagged_fields);
     return offset;
 }
 
@@ -2861,6 +2886,33 @@ dissect_kafka_produce_response_topic
 }
 
 static int
+dissect_kafka_produce_response_partition_node_endpoint
+        (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+    // https://github.com/apache/kafka/blob/3.7.0/clients/src/main/resources/common/message/ProduceResponse.json#L74-L84
+    offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_broker_nodeid);
+    offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_broker_host);
+    offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_broker_port);
+    offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_rack);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    return offset;
+}
+
+static int
+dissect_kafka_produce_response_tagged_fields
+        (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset, guint64 tag)
+{
+    if (tag == 0) {
+        offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
+                                            -1, NULL, ett_kafka_brokers, "Node Endpoints",
+                                            &dissect_kafka_produce_response_partition_node_endpoint);
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+static int
 dissect_kafka_produce_response
 (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
@@ -2869,7 +2921,7 @@ dissect_kafka_produce_response
                                         &dissect_kafka_produce_response_topic);
     __KAFKA_SINCE_VERSION__(1)
     offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_throttle_time);
-    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, &dissect_kafka_produce_response_tagged_fields);
     return offset;
 }
 
