@@ -274,6 +274,7 @@ static int hf_kafka_last_timestamp = -1;
 static int hf_kafka_current_txn_start_offset = -1;
 static int hf_kafka_incarnation_id = -1;
 static int hf_kafka_vote_granted = -1;
+static int hf_kafka_verify_only = -1;
 
 static int hf_sasl_plain_authzid = -1;
 static int hf_sasl_plain_authcid = -1;
@@ -509,7 +510,7 @@ static const kafka_api_info_t kafka_apis[] = {
     { KAFKA_OFFSET_FOR_LEADER_EPOCH,       "OffsetForLeaderEpoch",
       0, 4, 4 },
     { KAFKA_ADD_PARTITIONS_TO_TXN,         "AddPartitionsToTxn",
-      0, 3, 3 },
+      0, 5, 3 },
     { KAFKA_ADD_OFFSETS_TO_TXN,            "AddOffsetsToTxn",
       0, 3, 3 },
     { KAFKA_END_TXN,                       "EndTxn",
@@ -4250,15 +4251,43 @@ dissect_kafka_add_partitions_to_txn_request_topic
 }
 
 static int
-dissect_kafka_add_partitions_to_txn_request
-(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+dissect_kafka_add_partitions_to_txn_request_transaction
+        (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
+
     offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_transactional_id);
     offset = dissect_kafka_int64(tvb, kinfo, tree, offset, hf_kafka_producer_id);
     offset = dissect_kafka_int16(tvb, kinfo, tree, offset, hf_kafka_producer_epoch);
+    offset = dissect_kafka_int8(tvb, kinfo, tree, offset, hf_kafka_verify_only);
+    offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
+                                            -1, NULL, ett_kafka_topic, "Topic",
+                                            &dissect_kafka_add_partitions_to_txn_request_topic);
+
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    return offset;
+}
+
+static int
+dissect_kafka_add_partitions_to_txn_request
+(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+
+    __KAFKA_SINCE_VERSION__(4)
+    offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
+                                            -1, NULL, ett_kafka_transaction, "Transaction",
+                                            &dissect_kafka_add_partitions_to_txn_request_transaction);
+
+    __KAFKA_UNTIL_VERSION__(3)
+    offset = dissect_kafka_string(tvb, kinfo, tree, offset, hf_kafka_transactional_id);
+    __KAFKA_UNTIL_VERSION__(3)
+    offset = dissect_kafka_int64(tvb, kinfo, tree, offset, hf_kafka_producer_id);
+    __KAFKA_UNTIL_VERSION__(3)
+    offset = dissect_kafka_int16(tvb, kinfo, tree, offset, hf_kafka_producer_epoch);
+    __KAFKA_UNTIL_VERSION__(3)
     offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
                                         -1, NULL, ett_kafka_topic, "Topic",
                                         &dissect_kafka_add_partitions_to_txn_request_topic);
+
     offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
     return offset;
 }
@@ -4288,10 +4317,31 @@ dissect_kafka_add_partitions_to_txn_response_topic
 }
 
 static int
+dissect_kafka_add_partitions_to_txn_response_transaction
+(tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
+{
+    kafka_buffer_ref transaction_id;
+    offset = dissect_kafka_string_ret(tvb, kinfo, tree, offset, hf_kafka_transactional_id, &transaction_id);
+    offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
+                                        -1, NULL, ett_kafka_topic, "Topic",
+                                        &dissect_kafka_add_partitions_to_txn_response_topic);
+    offset = dissect_kafka_tagged_fields(tvb, kinfo, tree, offset, NULL);
+    proto_item_append_text(proto_tree_get_parent(tree), " (ID=%s)", __KAFKA_STRING__(transaction_id));
+    return offset;
+}
+
+static int
 dissect_kafka_add_partitions_to_txn_response
 (tvbuff_t *tvb, kafka_packet_info_t *kinfo, proto_tree *tree, int offset)
 {
     offset = dissect_kafka_int32(tvb, kinfo, tree, offset, hf_kafka_throttle_time);
+    __KAFKA_SINCE_VERSION__(4)
+    offset = dissect_kafka_error(tvb, kinfo, tree, offset);
+    __KAFKA_SINCE_VERSION__(4)
+    offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
+                                        -1, NULL, ett_kafka_transaction, "Transaction",
+                                        &dissect_kafka_add_partitions_to_txn_response_transaction);
+    __KAFKA_UNTIL_VERSION__(3)
     offset = dissect_kafka_array_object(tvb, kinfo, tree, offset,
                                         -1, NULL, ett_kafka_topic, "Topic",
                                         &dissect_kafka_add_partitions_to_txn_response_topic);
@@ -8920,6 +8970,11 @@ proto_register_kafka_protocol_fields(int protocol)
         },
         { &hf_kafka_vote_granted,
                 { "Vote Granted", "kafka.vote_granted",
+                        FT_BOOLEAN, BASE_NONE, 0, 0,
+                        NULL, HFILL }
+        },
+        { &hf_kafka_verify_only,
+                { "Verify Only", "kafka.verify_only",
                         FT_BOOLEAN, BASE_NONE, 0, 0,
                         NULL, HFILL }
         },
