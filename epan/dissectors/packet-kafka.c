@@ -448,6 +448,15 @@ static expert_field ei_kafka_pdu_length_mismatch = EI_INIT;
 #define KAFKA_LIST_TRANSACTIONS               66
 #define KAFKA_ALLOCATE_PRODUCER_IDS           67
 
+#define CONSUMER_GROUP_HEARTBEAT              68
+#define CONSUMER_GROUP_DESCRIBE               69
+#define CONTROLLER_REGISTRATION               70
+#define GET_TELEMETRY_SUBSCRIPTIONS           71
+#define PUSH_TELEMETR                         72
+#define ASSIGN_REPLICAS_TO_DIRS               73
+#define LIST_CLIENT_METRICS_RESOURCES         74
+#define DESCRIBE_TOPIC_PARTITIONS             75
+
 /*
  * Check for message changes here:
  * https://github.com/apache/kafka/tree/trunk/clients/src/main/resources/common/message
